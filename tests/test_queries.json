@@ -1,0 +1,53 @@
+[
+    {
+        "query": "Which flights have the worst delays?",
+        "intent": "delay_analysis",
+        "expected_entities": []
+    },
+    {
+        "query": "Show me flights from JFK to LAX",
+        "intent": "flight_search",
+        "expected_entities": ["AIRPORT"]
+    },
+    {
+        "query": "What are the routes with low passenger satisfaction?",
+        "intent": "passenger_satisfaction",
+        "expected_entities": []
+    },
+    {
+        "query": "Find flights departing from ORD",
+        "intent": "flight_search",
+        "expected_entities": ["AIRPORT"]
+    },
+    {
+        "query": "Which routes have the most delays?",
+        "intent": "delay_analysis",
+        "expected_entities": []
+    },
+    {
+        "query": "Show me journeys with food satisfaction below 3",
+        "intent": "passenger_satisfaction",
+        "expected_entities": ["NUMBER"]
+    },
+    {
+        "query": "What are the most popular routes?",
+        "intent": "route_analysis",
+        "expected_entities": []
+    },
+    {
+        "query": "Tell me about flight AA123",
+        "intent": "general_question",
+        "expected_entities": ["FLIGHT"]
+    },
+    {
+        "query": "Compare performance of different passenger classes",
+        "intent": "performance_metrics",
+        "expected_entities": []
+    },
+    {
+        "query": "Recommend the best routes for on-time performance",
+        "intent": "recommendation",
+        "expected_entities": []
+    }
+]
+
