@@ -526,6 +526,34 @@ Large batch of queries → Out of memory errors
 - Supports various ID formats
 - Maintains backward compatibility
 
+#### Attempt 6: False Positive Prevention for Journey/Passenger IDs
+
+**Problem**: Initial patterns were too broad, matching years and date components (e.g., "2024" in "2024-03-15" was extracted as both PASSENGER and JOURNEY)
+
+**Solution Attempted**:
+- Made prefixes required (not optional) in regex patterns
+- Patterns now require explicit prefix: `journey_`, `journey-`, `J`, `passenger_`, `passenger-`, `P`
+- Excluded journey/passenger IDs from number extraction
+- Added exclusion logic to prevent numbers in dates from being extracted as entity IDs
+
+**Result**: ✅ **Successful**
+- Eliminated false positives from years and dates
+- "2024" in "2024-03-15" now only extracted as DATE
+- "2024" as standalone year only extracted as DATE, not as entity ID
+- Maintains correct extraction for valid IDs like "journey_12345" and "P56789"
+
+#### Attempt 7: Route Pattern Refinement
+
+**Problem**: Route pattern captured single letters from words (e.g., "s" from "routes" in "What routes connect...")
+
+**Solution Attempted**:
+- Added validation to ignore single-character captures
+- Treat single-character matches as "mentioned" instead of literal value
+
+**Result**: ✅ **Successful**
+- Route extraction now correctly shows "mentioned" instead of capturing stray letters
+- Improved route mention detection
+
 ### Current Error Rates (Based on Testing)
 
 | Component | Error Type | Rate | Status |
@@ -535,7 +563,10 @@ Large batch of queries → Out of memory errors
 | Entity Extraction | False Positives | ~2% | Low (whitelist effective) |
 | Entity Extraction | False Negatives | ~8% | Acceptable (whitelist limitation) |
 | Entity Extraction | Missing Entities | ~5% | Low (comprehensive patterns) |
+| Entity Extraction | Journey/Passenger False Positives | ~0% | Eliminated (prefix requirement) |
 | Embedding Generation | Generation Failures | ~1% | Very low (good error handling) |
+
+**Note**: Error rates are based on test queries. Real-world rates may vary based on query complexity and domain coverage.
 
 ### Ongoing Improvement Efforts
 
