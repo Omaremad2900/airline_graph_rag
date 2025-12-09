@@ -203,16 +203,28 @@ def main():
             baseline_results = []
             embedding_results = []
             cypher_queries = []
+            embedding_results_by_model = {}
             
             if retrieval_method in ["Baseline Only", "Both (Hybrid)"]:
-                baseline_results = st.session_state.baseline_retriever.retrieve(intent, entities)
-                # Get executed queries (simplified - would need to track actual queries)
-                cypher_queries.append("Cypher query executed based on intent and entities")
+                baseline_results, executed_queries = st.session_state.baseline_retriever.retrieve(intent, entities)
+                cypher_queries = executed_queries
             
             if retrieval_method in ["Embeddings Only", "Both (Hybrid)"]:
                 if embedding_model_name:
                     embedding_retriever = st.session_state.embedding_retrievers[embedding_model_name]
                     embedding_results = embedding_retriever.retrieve_by_similarity(user_query, top_k=10)
+                    embedding_results_by_model[embedding_model_name] = embedding_results
+                
+                # If comparing models, get results from all models
+                if retrieval_method == "Both (Hybrid)":
+                    for model_name in EMBEDDING_MODELS.keys():
+                        if model_name != embedding_model_name:
+                            try:
+                                retriever = st.session_state.embedding_retrievers[model_name]
+                                results = retriever.retrieve_by_similarity(user_query, top_k=10)
+                                embedding_results_by_model[model_name] = results
+                            except Exception as e:
+                                st.warning(f"Could not retrieve with model {model_name}: {e}")
             
             # Combine results
             all_results = baseline_results + embedding_results
@@ -307,9 +319,29 @@ def main():
             
             # Display Cypher queries
             if cypher_queries:
-                with st.expander("🔧 Cypher Queries Executed"):
-                    for query in cypher_queries:
-                        st.code(query, language="cypher")
+                with st.expander("🔧 Cypher Queries Executed", expanded=False):
+                    for i, query_info in enumerate(cypher_queries, 1):
+                        st.write(f"**Query {i}: {query_info['template']}** (Intent: {query_info['intent']})")
+                        st.write(f"**Parameters:** {json.dumps(query_info['parameters'], indent=2)}")
+                        st.write(f"**Results:** {query_info['result_count']} records")
+                        st.code(query_info['query'], language="cypher")
+                        if i < len(cypher_queries):
+                            st.divider()
+            
+            # Display embedding model comparison if multiple models used
+            if len(embedding_results_by_model) > 1:
+                with st.expander("🔍 Embedding Model Comparison", expanded=False):
+                    comparison_data = []
+                    for model_name, results in embedding_results_by_model.items():
+                        model_display = EMBEDDING_MODELS[model_name]["name"]
+                        comparison_data.append({
+                            "Model": model_display,
+                            "Results Count": len(results),
+                            "Avg Similarity": sum(r.get("similarity_score", 0) for r in results) / len(results) if results else 0
+                        })
+                    if comparison_data:
+                        comparison_df = pd.DataFrame(comparison_data)
+                        st.dataframe(comparison_df, use_container_width=True)
             
             # Save to history
             st.session_state.query_history.append({

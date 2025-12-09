@@ -78,7 +78,7 @@ class BaselineRetriever:
             },
             "passenger_satisfaction": {
                 "low_rated_journeys": """
-                    MATCH (p:Passenger)-[:TAKES]->(j:Journey)
+                    MATCH (j:Journey)
                     WHERE j.food_satisfaction_score < $min_score
                     RETURN j.feedback_ID as feedback_id,
                            j.food_satisfaction_score as food_score,
@@ -88,7 +88,7 @@ class BaselineRetriever:
                     LIMIT 20
                 """,
                 "satisfaction_by_class": """
-                    MATCH (p:Passenger)-[:TAKES]->(j:Journey)
+                    MATCH (j:Journey)
                     WHERE j.food_satisfaction_score IS NOT NULL
                     RETURN j.passenger_class as passenger_class,
                            AVG(j.food_satisfaction_score) as avg_satisfaction,
@@ -96,8 +96,7 @@ class BaselineRetriever:
                     ORDER BY avg_satisfaction ASC
                 """,
                 "poor_performing_flights": """
-                    MATCH (j:Journey)-[:ON]->(f:Flight),
-                          (p:Passenger)-[:TAKES]->(j)
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
                     WHERE j.food_satisfaction_score < 3 
                        OR j.arrival_delay_minutes > 30
                     WITH f, 
@@ -137,7 +136,7 @@ class BaselineRetriever:
                     LIMIT 20
                 """,
                 "multi_leg_journeys": """
-                    MATCH (p:Passenger)-[:TAKES]->(j:Journey)-[:ON]->(f:Flight)
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
                     WHERE j.number_of_legs > 1
                     RETURN j.feedback_ID as feedback_id,
                            j.number_of_legs as legs,
@@ -149,11 +148,9 @@ class BaselineRetriever:
             },
             "journey_insights": {
                 "journey_details": """
-                    MATCH (p:Passenger)-[:TAKES]->(j:Journey)-[:ON]->(f:Flight)
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
                     WHERE j.feedback_ID = $feedback_id
-                    RETURN p.record_locator as record_locator,
-                           p.loyalty_program_level as loyalty_level,
-                           j.feedback_ID as feedback_id,
+                    RETURN j.feedback_ID as feedback_id,
                            j.food_satisfaction_score as food_score,
                            j.arrival_delay_minutes as delay,
                            j.actual_flown_miles as miles,
@@ -161,9 +158,9 @@ class BaselineRetriever:
                            f.flight_number as flight_number
                 """,
                 "loyalty_passenger_journeys": """
-                    MATCH (p:Passenger)-[:TAKES]->(j:Journey)-[:ON]->(f:Flight)
-                    WHERE p.loyalty_program_level IS NOT NULL
-                    RETURN p.loyalty_program_level as loyalty_level,
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WHERE j.passenger_class IS NOT NULL
+                    RETURN j.passenger_class as passenger_class,
                            COUNT(j) as journey_count,
                            AVG(j.food_satisfaction_score) as avg_satisfaction,
                            AVG(j.arrival_delay_minutes) as avg_delay
@@ -223,7 +220,7 @@ class BaselineRetriever:
             }
         }
     
-    def retrieve(self, intent: str, entities: dict) -> list:
+    def retrieve(self, intent: str, entities: dict) -> tuple:
         """
         Retrieve information based on intent and entities.
         
@@ -232,20 +229,47 @@ class BaselineRetriever:
             entities: Extracted entities
             
         Returns:
-            List of retrieved records
+            Tuple of (list of retrieved records, list of executed queries with info)
         """
         if intent not in self.query_templates:
             intent = "general_question"
         
         templates = self.query_templates[intent]
         results = []
+        executed_queries = []
+        
+        # For flight_search, prioritize by_route when both airports are present
+        if intent == "flight_search" and entities.get("AIRPORT"):
+            airports = entities.get("AIRPORT", [])
+            airport_codes = [a["value"] for a in airports if a.get("type") == "AIRPORT_CODE"]
+            if len(airport_codes) >= 2:
+                # Try by_route first
+                template_order = ["by_route", "by_departure", "by_arrival"]
+            elif len(airport_codes) == 1:
+                # Try by_departure first, then by_arrival
+                template_order = ["by_departure", "by_arrival", "by_route"]
+            else:
+                template_order = list(templates.keys())
+        else:
+            template_order = list(templates.keys())
         
         # Try different query templates based on available entities
-        for template_name, query in templates.items():
+        for template_name in template_order:
+            if template_name not in templates:
+                continue
+            query = templates[template_name]
             try:
                 parameters = self._build_parameters(entities, template_name)
                 if parameters is not None:
                     result = self.connector.execute_query(query, parameters)
+                    # Track executed query even if no results
+                    executed_queries.append({
+                        "template": template_name,
+                        "intent": intent,
+                        "query": query.strip(),
+                        "parameters": parameters,
+                        "result_count": len(result) if result else 0
+                    })
                     if result:
                         results.extend(result)
             except Exception as e:
@@ -261,7 +285,7 @@ class BaselineRetriever:
                 seen.add(key)
                 unique_results.append(record)
         
-        return unique_results[:50]  # Limit total results
+        return unique_results[:50], executed_queries  # Limit total results
     
     def _build_parameters(self, entities: dict, template_name: str) -> dict:
         """Build query parameters from extracted entities."""
@@ -273,18 +297,41 @@ class BaselineRetriever:
         airport_names = [a["value"] for a in airports if a.get("type") == "AIRPORT_NAME"]
         
         # Map airport names to codes (simplified - would need a mapping)
-        if "departure" in template_name or "route" in template_name:
+        # Prioritize by_route when both airports are present
+        if "route" in template_name:
+            if len(airport_codes) >= 2:
+                parameters["departure_code"] = airport_codes[0]
+                parameters["arrival_code"] = airport_codes[1]
+            elif len(airport_codes) == 1:
+                # If only one airport, can't use by_route
+                return None
+            else:
+                # No airports for route query
+                return None
+        elif "departure" in template_name:
             if airport_codes:
+                # Use first airport as departure
                 parameters["departure_code"] = airport_codes[0]
             elif airport_names:
                 # Would need airport name to code mapping
                 pass
-        
-        if "arrival" in template_name or "route" in template_name:
-            if len(airport_codes) > 1:
-                parameters["arrival_code"] = airport_codes[1]
-            elif len(airport_codes) == 1 and "departure" not in template_name:
-                parameters["arrival_code"] = airport_codes[0]
+            else:
+                # No departure airport found
+                return None
+        elif "arrival" in template_name:
+            if airport_codes:
+                # If we have 2 airports, use the second one for arrival
+                # Otherwise use the first one
+                if len(airport_codes) >= 2:
+                    parameters["arrival_code"] = airport_codes[1]
+                else:
+                    parameters["arrival_code"] = airport_codes[0]
+            elif airport_names:
+                # Would need airport name to code mapping
+                pass
+            else:
+                # No arrival airport found
+                return None
         
         # Extract flight numbers
         flights = entities.get("FLIGHT", [])
@@ -298,13 +345,34 @@ class BaselineRetriever:
                 parameters["min_delay"] = float(numbers[0]["value"])
             elif "satisfaction" in template_name or "score" in template_name:
                 parameters["min_score"] = float(numbers[0]["value"])
+        else:
+            # Provide default thresholds if no number specified
+            if "delay" in template_name and "flights_with_delays" in template_name:
+                # Default: delays over 15 minutes
+                parameters["min_delay"] = 15.0
+            elif "satisfaction" in template_name and "low_rated_journeys" in template_name:
+                # Default: satisfaction below 3
+                parameters["min_score"] = 3.0
         
         # Extract feedback ID
         # This would need more sophisticated entity extraction
         
+        # Templates that don't require parameters (can run without entities)
+        no_param_templates = [
+            "overall_statistics", 
+            "popular_routes", 
+            "satisfaction_by_class",
+            "delays_by_route",
+            "worst_delayed_flights",
+            "loyalty_passenger_journeys",
+            "multi_leg_journeys"
+        ]
+        
         # If no specific parameters needed, return empty dict
-        if not parameters and template_name in ["overall_statistics", "popular_routes", "satisfaction_by_class"]:
+        if not parameters and template_name in no_param_templates:
             return {}
         
+        # For queries that require parameters, return None if missing
+        # This allows queries without required params to be skipped
         return parameters if parameters else None
 
