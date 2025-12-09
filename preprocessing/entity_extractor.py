@@ -52,6 +52,19 @@ class EntityExtractor:
         # Flight number pattern (e.g., AA123, DL456)
         self.flight_number_pattern = r'\b[A-Z]{2}\d{3,4}\b'
         
+        # Journey ID pattern (e.g., journey_12345, journey-12345, J12345, j_12345)
+        # Must have explicit prefix to avoid matching years or random numbers
+        # Pattern: journey/j + optional separator + digits OR single letter + digits (no separator)
+        self.journey_id_pattern = r'\b(?:(?:journey[_-]|j[_-])(\d{4,})|j(\d{4,}))\b'
+        
+        # Passenger ID pattern (e.g., passenger_12345, passenger-12345, P12345, p_12345)
+        # Must have explicit prefix to avoid matching years or random numbers
+        # Pattern: passenger/p + optional separator + digits OR single letter + digits (no separator)
+        self.passenger_id_pattern = r'\b(?:(?:passenger[_-]|p[_-])(\d{4,})|p(\d{4,}))\b'
+        
+        # Route pattern (implicitly via airport pairs, but can extract route mentions)
+        self.route_pattern = r'\broute[_-]?(\w+)?\b'
+        
         # Date patterns (ordered by specificity - most specific first)
         self.date_patterns = [
             r'\b\d{4}-\d{2}-\d{2}\b',  # YYYY-MM-DD
@@ -118,6 +131,48 @@ class EntityExtractor:
         flights = re.findall(self.flight_number_pattern, query.upper())
         return [{"value": flight, "type": "FLIGHT"} for flight in flights]
     
+    def extract_journeys(self, query: str) -> list:
+        """Extract journey IDs from query."""
+        journeys = []
+        # Extract journey IDs (e.g., journey_12345, journey-12345, J12345, j_12345)
+        # Must have explicit prefix to avoid matching years or dates
+        matches = re.finditer(self.journey_id_pattern, query, re.IGNORECASE)
+        for match in matches:
+            # Group 1: journey_12345 or j_12345 format
+            # Group 2: J12345 format (single letter, no separator)
+            journey_id = match.group(1) or match.group(2)
+            if journey_id:
+                journeys.append({"value": journey_id, "type": "JOURNEY"})
+        return journeys
+    
+    def extract_passengers(self, query: str) -> list:
+        """Extract passenger IDs from query."""
+        passengers = []
+        # Extract passenger IDs (e.g., passenger_12345, passenger-12345, P12345, p_12345)
+        # Must have explicit prefix to avoid matching years or dates
+        matches = re.finditer(self.passenger_id_pattern, query, re.IGNORECASE)
+        for match in matches:
+            # Group 1: passenger_12345 or p_12345 format
+            # Group 2: P12345 format (single letter, no separator)
+            passenger_id = match.group(1) or match.group(2)
+            if passenger_id:
+                passengers.append({"value": passenger_id, "type": "PASSENGER"})
+        return passengers
+    
+    def extract_routes(self, query: str) -> list:
+        """Extract route mentions from query (routes are typically implicit via airport pairs)."""
+        # Routes are usually extracted as airport pairs, but we can identify route mentions
+        routes = []
+        matches = re.finditer(self.route_pattern, query, re.IGNORECASE)
+        for match in matches:
+            route_name = match.group(1)
+            # If group 1 is None or empty, or if it's just a single letter (like 's' from 'routes'),
+            # treat it as a route mention
+            if not route_name or len(route_name) == 1:
+                route_name = "mentioned"
+            routes.append({"value": route_name, "type": "ROUTE"})
+        return routes
+    
     def extract_dates(self, query: str) -> list:
         """Extract dates from query."""
         dates = []
@@ -141,10 +196,12 @@ class EntityExtractor:
         
         return dates
     
-    def extract_numbers(self, query: str, exclude_dates: list = None) -> list:
-        """Extract numeric values from query, excluding those in dates."""
+    def extract_numbers(self, query: str, exclude_dates: list = None, exclude_ids: set = None) -> list:
+        """Extract numeric values from query, excluding those in dates and entity IDs."""
         if exclude_dates is None:
             exclude_dates = []
+        if exclude_ids is None:
+            exclude_ids = set()
         
         # Find all number positions
         number_matches = list(re.finditer(self.number_pattern, query))
@@ -157,7 +214,7 @@ class EntityExtractor:
             for match in re.finditer(re.escape(date_value), query, re.IGNORECASE):
                 date_positions.append((match.start(), match.end()))
         
-        # Extract numbers that are not part of dates
+        # Extract numbers that are not part of dates or entity IDs
         for match in number_matches:
             num_start, num_end = match.span()
             num_value = match.group()
@@ -168,6 +225,10 @@ class EntityExtractor:
                 if date_start <= num_start < date_end or date_start < num_end <= date_end:
                     is_in_date = True
                     break
+            
+            # Check if this number is an entity ID (journey or passenger)
+            if num_value in exclude_ids:
+                continue
             
             if not is_in_date:
                 numbers.append({"value": float(num_value), "type": "NUMBER"})
@@ -191,6 +252,9 @@ class EntityExtractor:
         entities = {
             "AIRPORT": self.extract_airports(query),
             "FLIGHT": self.extract_flights(query),
+            "PASSENGER": self.extract_passengers(query),
+            "JOURNEY": self.extract_journeys(query),
+            "ROUTE": self.extract_routes(query),
             "DATE": dates,
             "NUMBER": self.extract_numbers(query, exclude_dates=dates)
         }
