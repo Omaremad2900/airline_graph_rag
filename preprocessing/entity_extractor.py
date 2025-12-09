@@ -7,7 +7,30 @@ class EntityExtractor:
     """Extracts entities from user queries for airline domain."""
     
     def __init__(self):
-        # Airport codes pattern (3-letter IATA codes)
+        # Valid IATA airport codes (whitelist to prevent false positives)
+        self.valid_airport_codes = {
+            # Major US airports
+            "JFK", "LAX", "ORD", "DFW", "ATL", "DEN", "SFO", "LAS", "MCO",
+            "PHX", "MIA", "SEA", "IAH", "EWR", "MSP", "DTW", "BWI", "IAD",
+            "BOS", "CLT", "LGA", "DCA", "SLC", "PDX", "BNA", "AUS", "SJC",
+            "OAK", "RDU", "MCI", "STL", "TPA", "SAN", "DAL", "HOU", "FLL",
+            # International airports
+            "LHR", "CDG", "AMS", "FRA", "DXB", "NRT", "HND", "PEK", "PVG",
+            "CAN", "SIN", "ICN", "BKK", "KUL", "IST", "MAD", "BCN", "FCO",
+            "MUC", "ZUR", "VIE", "CPH", "OSL", "ARN", "HEL", "DUB", "MAN",
+            "YYZ", "YVR", "YUL", "SYD", "MEL", "AKL", "JNB", "CAI", "DXB"
+        }
+        
+        # Common English words to exclude (3-letter uppercase words that aren't airports)
+        self.excluded_words = {
+            "THE", "AND", "FOR", "ARE", "ALL", "NEW", "OLD", "ONE", "TWO",
+            "SIX", "TEN", "DAY", "WAY", "MAY", "JAN", "FEB", "MAR", "APR",
+            "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "YES", "NOT",
+            "BUT", "HER", "HIS", "OUR", "OUT", "USE", "WHO", "WHY", "HOW",
+            "WHEN", "WHAT", "WHERE", "FROM", "WITH", "INTO", "UPON", "OVER"
+        }
+        
+        # Airport codes pattern (3-letter IATA codes) - will be filtered by whitelist
         self.airport_code_pattern = r'\b[A-Z]{3}\b'
         
         # Common airport names (can be extended)
@@ -18,36 +41,77 @@ class EntityExtractor:
             "los angeles", "chicago", "atlanta", "dallas", "miami"
         }
         
+        # Mapping of airport names to codes for deduplication
+        self.airport_name_to_code = {
+            "jfk": "JFK", "lax": "LAX", "ord": "ORD", "dfw": "DFW", "atl": "ATL",
+            "den": "DEN", "sfo": "SFO", "las": "LAS", "mco": "MCO", "phx": "PHX",
+            "mia": "MIA", "sea": "SEA", "iah": "IAH", "ewr": "EWR", "msp": "MSP",
+            "dtw": "DTW", "bwi": "BWI", "iad": "IAD"
+        }
+        
         # Flight number pattern (e.g., AA123, DL456)
         self.flight_number_pattern = r'\b[A-Z]{2}\d{3,4}\b'
         
-        # Date patterns
+        # Date patterns (ordered by specificity - most specific first)
         self.date_patterns = [
             r'\b\d{4}-\d{2}-\d{2}\b',  # YYYY-MM-DD
             r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # MM/DD/YYYY
-            r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b',
-            r'\b\d{4}\b'  # Year only
+            r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b',  # Month name format
         ]
+        
+        # Year-only pattern (used only if not part of full date)
+        self.year_pattern = r'\b\d{4}\b'
         
         # Number patterns
         self.number_pattern = r'\b\d+(?:\.\d+)?\b'
+    
+    def _normalize_airport(self, value: str, entity_type: str) -> str:
+        """Normalize airport code/name for deduplication."""
+        if entity_type == "AIRPORT_CODE":
+            return value.upper()
+        elif entity_type == "AIRPORT_NAME":
+            # Check if name maps to a code
+            normalized = value.lower()
+            if normalized in self.airport_name_to_code:
+                return self.airport_name_to_code[normalized]
+            return normalized
+        return value.lower()
     
     def extract_airports(self, query: str) -> list:
         """Extract airport codes and names from query."""
         airports = []
         query_upper = query.upper()
+        query_lower = query.lower()
         
-        # Extract airport codes
+        # Extract airport codes (filtered by whitelist)
         codes = re.findall(self.airport_code_pattern, query_upper)
-        airports.extend([{"value": code, "type": "AIRPORT_CODE"} for code in codes])
+        for code in codes:
+            # Only include if it's a valid airport code and not an excluded word
+            if code in self.valid_airport_codes and code not in self.excluded_words:
+                airports.append({"value": code, "type": "AIRPORT_CODE"})
         
         # Extract airport names
-        query_lower = query.lower()
         for airport in self.airport_names:
             if airport in query_lower:
                 airports.append({"value": airport, "type": "AIRPORT_NAME"})
         
-        return airports
+        # Deduplicate: if same airport found as both code and name, keep only code
+        seen = set()
+        deduplicated = []
+        for airport in airports:
+            normalized = self._normalize_airport(airport["value"], airport["type"])
+            if normalized not in seen:
+                seen.add(normalized)
+                deduplicated.append(airport)
+            elif airport["type"] == "AIRPORT_CODE":
+                # Replace name with code if we see the code version
+                for i, existing in enumerate(deduplicated):
+                    if self._normalize_airport(existing["value"], existing["type"]) == normalized:
+                        if existing["type"] == "AIRPORT_NAME":
+                            deduplicated[i] = airport  # Replace with code version
+                            break
+        
+        return deduplicated
     
     def extract_flights(self, query: str) -> list:
         """Extract flight numbers from query."""
@@ -57,15 +121,58 @@ class EntityExtractor:
     def extract_dates(self, query: str) -> list:
         """Extract dates from query."""
         dates = []
+        full_date_matches = set()
+        
+        # Extract full dates first (most specific patterns)
         for pattern in self.date_patterns:
             matches = re.findall(pattern, query, re.IGNORECASE)
-            dates.extend([{"value": match, "type": "DATE"} for match in matches])
+            for match in matches:
+                dates.append({"value": match, "type": "DATE"})
+                # Track the year in full dates to avoid extracting it separately
+                year_match = re.search(r'\d{4}', match)
+                if year_match:
+                    full_date_matches.add(year_match.group())
+        
+        # Extract year-only if not part of a full date
+        year_matches = re.findall(self.year_pattern, query)
+        for year in year_matches:
+            if year not in full_date_matches:
+                dates.append({"value": year, "type": "DATE"})
+        
         return dates
     
-    def extract_numbers(self, query: str) -> list:
-        """Extract numeric values from query."""
-        numbers = re.findall(self.number_pattern, query)
-        return [{"value": float(num), "type": "NUMBER"} for num in numbers]
+    def extract_numbers(self, query: str, exclude_dates: list = None) -> list:
+        """Extract numeric values from query, excluding those in dates."""
+        if exclude_dates is None:
+            exclude_dates = []
+        
+        # Find all number positions
+        number_matches = list(re.finditer(self.number_pattern, query))
+        numbers = []
+        
+        # Find all date positions
+        date_positions = []
+        for date_entity in exclude_dates:
+            date_value = date_entity["value"]
+            for match in re.finditer(re.escape(date_value), query, re.IGNORECASE):
+                date_positions.append((match.start(), match.end()))
+        
+        # Extract numbers that are not part of dates
+        for match in number_matches:
+            num_start, num_end = match.span()
+            num_value = match.group()
+            
+            # Check if this number is part of any date
+            is_in_date = False
+            for date_start, date_end in date_positions:
+                if date_start <= num_start < date_end or date_start < num_end <= date_end:
+                    is_in_date = True
+                    break
+            
+            if not is_in_date:
+                numbers.append({"value": float(num_value), "type": "NUMBER"})
+        
+        return numbers
     
     def extract_entities(self, query: str) -> dict:
         """
@@ -77,11 +184,15 @@ class EntityExtractor:
         Returns:
             Dictionary of extracted entities by type
         """
+        # Extract dates first (needed to exclude numbers from dates)
+        dates = self.extract_dates(query)
+        
+        # Extract other entities
         entities = {
             "AIRPORT": self.extract_airports(query),
             "FLIGHT": self.extract_flights(query),
-            "DATE": self.extract_dates(query),
-            "NUMBER": self.extract_numbers(query)
+            "DATE": dates,
+            "NUMBER": self.extract_numbers(query, exclude_dates=dates)
         }
         
         # Filter out empty lists
