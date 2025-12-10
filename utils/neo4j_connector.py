@@ -6,10 +6,22 @@ import config
 class Neo4jConnector:
     """Manages Neo4j database connections and queries."""
     
-    def __init__(self):
+    def __init__(self, uri=None, username=None, password=None):
+        """
+        Initialize Neo4j connector.
+        
+        Args:
+            uri: Neo4j URI (uses config.NEO4J_URI if None)
+            username: Neo4j username (uses config.NEO4J_USERNAME if None)
+            password: Neo4j password (uses config.NEO4J_PASSWORD if None)
+        """
+        self.uri = uri or config.NEO4J_URI
+        self.username = username or config.NEO4J_USERNAME
+        self.password = password or config.NEO4J_PASSWORD
+        
         self.driver = GraphDatabase.driver(
-            config.NEO4J_URI,
-            auth=(config.NEO4J_USERNAME, config.NEO4J_PASSWORD)
+            self.uri,
+            auth=(self.username, self.password)
         )
     
     def close(self):
