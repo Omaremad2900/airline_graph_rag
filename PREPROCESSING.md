@@ -441,14 +441,20 @@ Large batch of queries → Out of memory errors
 ```
 
 **Improvements Implemented**:
-- ✅ **Error handling**: Graceful fallback when embeddings unavailable
+- ✅ **Error handling**: Comprehensive error handling with try/except blocks
+- ✅ **Input validation**: Validates text inputs before processing
+- ✅ **Graceful fallback**: Returns zero vector for empty text instead of failing
+- ✅ **Model loading errors**: Catches and reports model loading failures
+- ✅ **Encoding errors**: Handles encoding failures with proper error messages
 - ✅ **Model consistency**: Same models used for queries and KG embeddings
-- ✅ **Batch processing**: Efficient processing of multiple queries
+- ✅ **Batch processing**: Efficient processing of multiple queries with validation
 - ✅ **Dimension validation**: Automatic dimension checking from config
 - ✅ **Model caching**: Models loaded once and reused
+- ✅ **Logging**: Uses Python logging instead of print statements
 
 **Remaining Challenges**:
 - Network-dependent model downloads
+- Large batch processing may still cause memory issues
 - GPU availability for faster processing
 - Memory management for very large batches
 
@@ -623,11 +629,46 @@ Large batch of queries → Out of memory errors
    - The system automatically deduplicates airports found as both code and name
    - Code version is preferred over name version
 
+### Error Handling
+
+The preprocessing pipeline includes comprehensive error handling:
+
+#### 1. Input Validation
+- **Intent Classification**: Validates query is non-empty string, defaults to `general_question` on invalid input
+- **Entity Extraction**: Validates query is non-empty string, returns empty dict on invalid input
+- **Embedding Generation**: Validates text inputs, handles empty strings gracefully
+
+#### 2. Exception Handling
+- **LLM-based methods**: Try/except blocks with fallback to rule-based methods
+- **Model loading**: Catches and reports model loading failures
+- **Encoding errors**: Handles encoding failures with proper error messages
+- **Regex errors**: Catches invalid regex patterns and continues processing
+
+#### 3. Logging
+- All modules use Python's `logging` module instead of `print()`
+- Log levels: INFO (normal operations), WARNING (fallbacks), ERROR (failures)
+- Configure logging in your application:
+  ```python
+  import logging
+  logging.basicConfig(level=logging.INFO)
+  ```
+
+#### 4. Application-Level Error Handling
+- `app.py` wraps preprocessing calls in try/except blocks
+- Provides user-friendly error messages in Streamlit UI
+- Falls back to safe defaults (general_question, empty entities) on errors
+
+#### 5. Error Recovery
+- **Intent Classification**: Always returns a valid intent (defaults to `general_question`)
+- **Entity Extraction**: Always returns a dict (may be empty)
+- **Embedding Generation**: Raises exceptions (handled at application level)
+
 ### Debug Mode
 
 Enable verbose output by:
 - Using the interactive test mode: `python test_preprocessing.py interactive`
-- Adding print statements in the preprocessing modules
+- Configuring logging: `logging.basicConfig(level=logging.DEBUG)`
 - Checking the preprocessing results in the Streamlit app's expandable section
+- Reviewing log files for detailed error information
 
 

@@ -1,6 +1,10 @@
 """Intent classification for routing queries to appropriate retrieval strategies."""
 import re
+import logging
 import config
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class IntentClassifier:
@@ -85,21 +89,44 @@ class IntentClassifier:
             query: User input query
             
         Returns:
-            Intent category string
+            Intent category string (defaults to "general_question" if classification fails)
+            
+        Raises:
+            ValueError: If query is None or empty
         """
-        query_lower = query.lower()
+        if query is None:
+            logger.warning("None query provided, defaulting to general_question")
+            return "general_question"
         
-        # Score each intent
-        intent_scores = {}
-        for intent, patterns in self.intent_patterns.items():
-            score = sum(1 for pattern in patterns if re.search(pattern, query_lower, re.IGNORECASE))
-            if score > 0:
-                intent_scores[intent] = score
+        if not isinstance(query, str):
+            logger.warning(f"Non-string query provided ({type(query)}), defaulting to general_question")
+            return "general_question"
         
-        # Return the intent with highest score, or default to general_question
-        if intent_scores:
-            return max(intent_scores, key=intent_scores.get)
-        return "general_question"
+        if not query.strip():
+            logger.warning("Empty query provided, defaulting to general_question")
+            return "general_question"
+        
+        try:
+            query_lower = query.lower()
+            
+            # Score each intent
+            intent_scores = {}
+            for intent, patterns in self.intent_patterns.items():
+                try:
+                    score = sum(1 for pattern in patterns if re.search(pattern, query_lower, re.IGNORECASE))
+                    if score > 0:
+                        intent_scores[intent] = score
+                except re.error as e:
+                    logger.warning(f"Invalid regex pattern for intent '{intent}': {e}")
+                    continue
+            
+            # Return the intent with highest score, or default to general_question
+            if intent_scores:
+                return max(intent_scores, key=intent_scores.get)
+            return "general_question"
+        except Exception as e:
+            logger.error(f"Unexpected error during classification: {e}")
+            return "general_question"
     
     def classify_with_llm(self, query: str, llm=None) -> str:
         """
@@ -110,9 +137,15 @@ class IntentClassifier:
             llm: Optional LLM instance for classification
             
         Returns:
-            Intent category string
+            Intent category string (falls back to rule-based classification on error)
         """
+        # Validate input
+        if query is None or not isinstance(query, str) or not query.strip():
+            logger.warning("Invalid query for LLM classification, using rule-based")
+            return self.classify(query)
+        
         if llm is None:
+            logger.debug("No LLM provided, using rule-based classification")
             return self.classify(query)
         
         prompt = f"""Classify the following airline-related query into one of these intents:
@@ -124,11 +157,19 @@ Respond with only the intent name."""
         
         try:
             response = llm.invoke(prompt)
-            intent = response.strip().lower()
-            if intent in config.INTENTS:
-                return intent
+            if response:
+                intent = response.strip().lower()
+                if intent in config.INTENTS:
+                    logger.debug(f"LLM classified intent: {intent}")
+                    return intent
+                else:
+                    logger.warning(f"LLM returned invalid intent '{intent}', falling back to rule-based")
+            else:
+                logger.warning("LLM returned empty response, falling back to rule-based")
+        except AttributeError as e:
+            logger.error(f"LLM object missing required method 'invoke': {e}")
         except Exception as e:
-            print(f"LLM classification failed: {e}")
+            logger.error(f"LLM classification failed: {e}")
         
         return self.classify(query)
 

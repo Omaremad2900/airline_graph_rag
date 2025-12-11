@@ -1,6 +1,10 @@
 """Entity extraction from user queries using NER."""
 import re
+import logging
 import config
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class EntityExtractor:
@@ -243,24 +247,41 @@ class EntityExtractor:
             query: User input query
             
         Returns:
-            Dictionary of extracted entities by type
+            Dictionary of extracted entities by type (empty dict if query is invalid)
         """
-        # Extract dates first (needed to exclude numbers from dates)
-        dates = self.extract_dates(query)
+        # Input validation
+        if query is None:
+            logger.warning("None query provided for entity extraction")
+            return {}
         
-        # Extract other entities
-        entities = {
-            "AIRPORT": self.extract_airports(query),
-            "FLIGHT": self.extract_flights(query),
-            "PASSENGER": self.extract_passengers(query),
-            "JOURNEY": self.extract_journeys(query),
-            "ROUTE": self.extract_routes(query),
-            "DATE": dates,
-            "NUMBER": self.extract_numbers(query, exclude_dates=dates)
-        }
+        if not isinstance(query, str):
+            logger.warning(f"Non-string query provided ({type(query)}) for entity extraction")
+            return {}
         
-        # Filter out empty lists
-        return {k: v for k, v in entities.items() if v}
+        if not query.strip():
+            logger.warning("Empty query provided for entity extraction")
+            return {}
+        
+        try:
+            # Extract dates first (needed to exclude numbers from dates)
+            dates = self.extract_dates(query)
+            
+            # Extract other entities
+            entities = {
+                "AIRPORT": self.extract_airports(query),
+                "FLIGHT": self.extract_flights(query),
+                "PASSENGER": self.extract_passengers(query),
+                "JOURNEY": self.extract_journeys(query),
+                "ROUTE": self.extract_routes(query),
+                "DATE": dates,
+                "NUMBER": self.extract_numbers(query, exclude_dates=dates)
+            }
+            
+            # Filter out empty lists
+            return {k: v for k, v in entities.items() if v}
+        except Exception as e:
+            logger.error(f"Unexpected error during entity extraction: {e}")
+            return {}
     
     def extract_with_llm(self, query: str, llm=None) -> dict:
         """
@@ -271,10 +292,16 @@ class EntityExtractor:
             llm: Optional LLM instance for extraction
             
         Returns:
-            Dictionary of extracted entities
+            Dictionary of extracted entities (falls back to rule-based extraction on error)
         """
+        # Validate input
+        if query is None or not isinstance(query, str) or not query.strip():
+            logger.warning("Invalid query for LLM extraction, using rule-based")
+            return self.extract_entities(query)
+        
         # Fallback to rule-based if no LLM
         if llm is None:
+            logger.debug("No LLM provided, using rule-based extraction")
             return self.extract_entities(query)
         
         prompt = f"""Extract entities from this airline query. Return JSON with entity types and values:
@@ -288,8 +315,15 @@ Return format: {{"AIRPORT": ["code1", "code2"], "FLIGHT": ["AA123"], ...}}"""
             response = llm.invoke(prompt)
             # Parse JSON response (simplified - would need proper JSON parsing)
             # For now, fallback to rule-based
+            if response:
+                logger.debug("LLM extraction attempted, falling back to rule-based for parsing")
+            else:
+                logger.warning("LLM returned empty response, falling back to rule-based")
             return self.extract_entities(query)
+        except AttributeError as e:
+            logger.error(f"LLM object missing required method 'invoke': {e}")
         except Exception as e:
-            print(f"LLM entity extraction failed: {e}")
-            return self.extract_entities(query)
+            logger.error(f"LLM entity extraction failed: {e}")
+        
+        return self.extract_entities(query)
 

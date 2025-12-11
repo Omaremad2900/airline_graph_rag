@@ -187,9 +187,20 @@ def main():
     
     if st.button("🔍 Query", type="primary") and user_query:
         with st.spinner("Processing query..."):
-            # Step 1: Preprocessing
-            intent = st.session_state.intent_classifier.classify(user_query)
-            entities = st.session_state.entity_extractor.extract_entities(user_query)
+            # Step 1: Preprocessing (with error handling)
+            try:
+                intent = st.session_state.intent_classifier.classify(user_query)
+            except Exception as e:
+                st.error(f"❌ Intent classification failed: {e}")
+                intent = "general_question"  # Safe fallback
+                st.warning("⚠️ Using default intent: general_question")
+            
+            try:
+                entities = st.session_state.entity_extractor.extract_entities(user_query)
+            except Exception as e:
+                st.error(f"❌ Entity extraction failed: {e}")
+                entities = {}  # Safe fallback
+                st.warning("⚠️ No entities extracted")
             
             # Display preprocessing results
             with st.expander("🔍 Preprocessing Results", expanded=False):
