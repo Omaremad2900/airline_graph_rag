@@ -1,4 +1,4 @@
-"""Script to initialize embeddings in Neo4j for embedding-based retrieval."""
+"""Script to initialize embeddings in FAISS for embedding-based retrieval."""
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,7 +11,7 @@ from config import EMBEDDING_MODELS
 
 def initialize_embeddings(model_name: str = None, all_models: bool = False):
     """
-    Initialize embeddings for Journey nodes in Neo4j.
+    Initialize embeddings for Journey nodes and store them in FAISS.
     
     Args:
         model_name: Embedding model to use (if None and all_models=False, uses first model)
@@ -39,24 +39,7 @@ def initialize_embeddings(model_name: str = None, all_models: bool = False):
             count = embedding_retriever.create_feature_embeddings()
             
             if count > 0:
-                # Create vector index for this model
-                # For feature vector embeddings, dimension is from the embedding model
-                dimension = embedding_model.get_dimension()
-                model_safe_name = model_name.replace("/", "_").replace("-", "_")
-                index_name = f"journey_feature_embedding_{model_safe_name}_index"
-                property_name = embedding_retriever.embedding_property
-                
-                print(f"Creating vector index '{index_name}' with dimension {dimension}...")
-                try:
-                    connector.create_vector_index(
-                        index_name,
-                        "Journey",
-                        property_name,
-                        dimension
-                    )
-                except Exception as e:
-                    print(f"Note: Vector index creation may not be supported: {e}")
-                print(f"✅ Model {model_name} completed")
+                print(f"✅ Model {model_name} completed: {count} embeddings stored in FAISS")
             else:
                 print(f"⚠️  No embeddings created for {model_name}")
     else:
@@ -80,24 +63,9 @@ def initialize_embeddings(model_name: str = None, all_models: bool = False):
         
         if count > 0:
             print("✅ Embeddings initialized successfully")
-            
-            # Create vector index
-            # For feature vector embeddings, dimension is from the embedding model
-            dimension = embedding_model.get_dimension()
-            model_safe_name = model_name.replace("/", "_").replace("-", "_")
-            index_name = f"journey_feature_embedding_{model_safe_name}_index"
-            property_name = embedding_retriever.embedding_property
-            
-            print(f"Creating vector index '{index_name}' with dimension {dimension}...")
-            try:
-                connector.create_vector_index(
-                    index_name,
-                    "Journey",
-                    property_name,
-                    dimension
-                )
-            except Exception as e:
-                print(f"Note: Vector index creation may not be supported: {e}")
+            print(f"   - FAISS index: {embedding_retriever.index_path}")
+            print(f"   - ID mapping: {embedding_retriever.mapping_path}")
+            print(f"   - Total vectors: {embedding_retriever.index.ntotal}")
         else:
             print("⚠️  No embeddings were created")
     
@@ -108,7 +76,7 @@ def initialize_embeddings(model_name: str = None, all_models: bool = False):
 if __name__ == "__main__":
     import argparse
     
-    parser = argparse.ArgumentParser(description="Initialize embeddings in Neo4j")
+    parser = argparse.ArgumentParser(description="Initialize embeddings in FAISS")
     parser.add_argument(
         "--model",
         type=str,
@@ -124,4 +92,3 @@ if __name__ == "__main__":
     
     args = parser.parse_args()
     initialize_embeddings(args.model, args.all)
-

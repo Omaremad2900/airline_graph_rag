@@ -47,6 +47,11 @@ wheels/
 graph.html
 *.log
 
+# FAISS indices
+faiss_indices/
+*.index
+*_mapping.json
+
 # OS
 .DS_Store
 Thumbs.db
