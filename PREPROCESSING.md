@@ -2,6 +2,20 @@
 
 This document explains the input preprocessing pipeline used in the Graph-RAG Airline Travel Assistant system.
 
+## Table of Contents
+
+- [a. System Overview](#a-system-overview)
+- [b. Intent Classification](#b-intent-classification)
+- [c. Entity Extraction](#c-entity-extraction)
+- [d. Input Embedding](#d-input-embedding)
+- [e. Error Analysis and Improvement Attempts](#e-error-analysis-and-improvement-attempts)
+- [Usage in the Application](#usage-in-the-application)
+- [Testing](#testing)
+- [Configuration](#configuration)
+- [Integration with Retrieval](#integration-with-retrieval)
+- [Advanced Features](#advanced-features)
+- [Troubleshooting](#troubleshooting)
+
 ## a. System Overview
 
 The preprocessing pipeline is the first stage of the Graph-RAG system, responsible for understanding and preparing user queries before retrieval and generation. It consists of three main components that work together to prepare user queries for retrieval and generation:
@@ -223,6 +237,76 @@ dim = generator.get_dimension()  # Returns: 384 (for MiniLM) or 768 (for MPNet)
 
 The preprocessing pipeline is integrated into the main application (`app.py`):
 
+### Initialization (Session State)
+
+Components are initialized once in Streamlit session state for performance:
+
+```python
+# app.py lines 39-42
+if 'intent_classifier' not in st.session_state:
+    st.session_state.intent_classifier = IntentClassifier()
+if 'entity_extractor' not in st.session_state:
+    st.session_state.entity_extractor = EntityExtractor()
+```
+
+**Benefits**:
+- Components loaded once per session (not per query)
+- Faster query processing
+- Reduced memory overhead
+
+### Execution Flow (Per Query)
+
+When a user submits a query in the Streamlit app:
+
+```python
+# app.py lines 190-203
+# Step 1: Intent Classification (with error handling)
+try:
+    intent = st.session_state.intent_classifier.classify(user_query)
+except Exception as e:
+    st.error(f"❌ Intent classification failed: {e}")
+    intent = "general_question"  # Safe fallback
+    st.warning("⚠️ Using default intent: general_question")
+
+# Step 2: Entity Extraction (with error handling)
+try:
+    entities = st.session_state.entity_extractor.extract_entities(user_query)
+except Exception as e:
+    st.error(f"❌ Entity extraction failed: {e}")
+    entities = {}  # Safe fallback
+    st.warning("⚠️ No entities extracted")
+
+# Step 3: Embedding Generation (conditional, handled in retrieval layer)
+# Embeddings are generated on-demand inside EmbeddingRetriever.retrieve_by_similarity()
+# Only when embedding-based retrieval is selected
+```
+
+### Display in UI
+
+Preprocessing results are displayed in an expandable section:
+
+```python
+# app.py lines 205-211
+with st.expander("🔍 Preprocessing Results", expanded=False):
+    col1, col2 = st.columns(2)
+    with col1:
+        st.write("**Intent:**", intent)
+    with col2:
+        st.write("**Entities:**", json.dumps(entities, indent=2))
+```
+
+### Integration with Retrieval
+
+The preprocessing output is used by retrieval components:
+
+1. **Intent** → Routes to appropriate Cypher query templates (`baseline_retriever.retrieve(intent, entities)`)
+2. **Entities** → Fills Cypher query parameters (e.g., `$departure_code`, `$arrival_code`)
+3. **Embeddings** → Generated on-demand in `EmbeddingRetriever.retrieve_by_similarity()` for FAISS search
+
+### Standalone Usage
+
+You can also use preprocessing components independently:
+
 ```python
 from preprocessing.intent_classifier import IntentClassifier
 from preprocessing.entity_extractor import EntityExtractor
@@ -248,12 +332,6 @@ entities = extractor.extract_entities(query)
 embedding = generator.embed_text(query)
 # Or batch: embeddings = generator.embed_batch([query1, query2, ...])
 ```
-
-**In Streamlit App**:
-- Components are initialized in session state for performance
-- Preprocessing results are displayed in an expandable section
-- Intent and entities are used to route queries to appropriate retrieval strategies
-- Embeddings are used for semantic similarity search when embedding-based retrieval is selected
 
 ## Testing
 

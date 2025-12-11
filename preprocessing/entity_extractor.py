@@ -237,6 +237,30 @@ class EntityExtractor:
             if not is_in_date:
                 numbers.append({"value": float(num_value), "type": "NUMBER"})
         
+        # Extract qualitative rating indicators and map to numeric thresholds
+        query_lower = query.lower()
+        rating_keywords = {
+            "low": 3.0,           # Low ratings = below 3
+            "poor": 2.5,          # Poor ratings = below 2.5
+            "bad": 2.0,           # Bad ratings = below 2
+            "high": 4.0,          # High ratings = above 4
+            "excellent": 4.5,     # Excellent ratings = above 4.5
+            "good": 3.5           # Good ratings = above 3.5
+        }
+        
+        # Check if query mentions ratings/satisfaction with qualitative terms
+        has_rating_context = any(keyword in query_lower for keyword in ["rating", "satisfaction", "score", "review", "feedback"])
+        
+        if has_rating_context:
+            for keyword, threshold in rating_keywords.items():
+                # Look for patterns like "low ratings", "poor satisfaction", etc.
+                pattern = rf'\b{keyword}\s+(?:rating|satisfaction|score|review|feedback)|\b(?:rating|satisfaction|score|review|feedback).*{keyword}'
+                if re.search(pattern, query_lower):
+                    # Only add if we don't already have a number extracted
+                    if not numbers:
+                        numbers.append({"value": threshold, "type": "NUMBER"})
+                        break
+        
         return numbers
     
     def extract_entities(self, query: str) -> dict:
