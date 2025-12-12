@@ -37,6 +37,23 @@ Run the Streamlit application:
 streamlit run app.py
 ```
 
+## LLM Model Evaluation
+
+For Milestone 3 requirement 3.d (compare 3+ models with qualitative and quantitative evaluation):
+
+```bash
+# Run comprehensive LLM evaluation
+python evaluate_llms.py
+
+# Custom query evaluation
+python evaluate_llms.py --custom-query "Which flights have the worst delays?"
+
+# Specify models to compare
+python evaluate_llms.py --models gpt-3.5-turbo claude-3-haiku-20240307 mistralai/mistral-7b-instruct
+```
+
+See `LLM_EVALUATION_GUIDE.md` for detailed instructions on running evaluations and interpreting results.
+
 ## Project Structure
 
 ```
@@ -151,8 +168,10 @@ Use the model comparison feature in the UI to evaluate multiple LLMs side-by-sid
 
 ✅ **LLM Layer**
 - Structured prompts (Context + Persona + Task)
-- Multi-model support (3+ models)
+- Multi-model support (6 models across 5 providers)
 - Quantitative and qualitative evaluation
+- Comprehensive evaluation script (`evaluate_llms.py`)
+- Cost estimation and performance metrics
 
 ✅ **UI (Streamlit)**
 - View KG-retrieved context
@@ -161,4 +180,49 @@ Use the model comparison feature in the UI to evaluate multiple LLMs side-by-sid
 - Graph visualization
 - Model selection dropdown
 - Retrieval method selection
+
+## Documentation
+
+- **[QUICKSTART.md](QUICKSTART.md)** - Quick start guide for setup and basic usage
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - System architecture and design
+- **[PREPROCESSING.md](PREPROCESSING.md)** - Input preprocessing details
+- **[RETRIEVAL_IMPLEMENTATION.md](RETRIEVAL_IMPLEMENTATION.md)** - Graph retrieval layer
+- **[LLM_LAYER.md](LLM_LAYER.md)** - **LLM layer implementation (Milestone 3)**
+- **[LLM_EVALUATION_GUIDE.md](LLM_EVALUATION_GUIDE.md)** - **Step-by-step evaluation guide**
+- **[LLM_QUICK_REFERENCE.md](LLM_QUICK_REFERENCE.md)** - **Quick reference for LLM layer**
+- **[FAISS_MIGRATION.md](FAISS_MIGRATION.md)** - FAISS vector storage migration
+- **[TESTING_GUIDE.md](TESTING_GUIDE.md)** - Testing procedures
+
+## Milestone 3 - LLM Layer Deliverables
+
+### Requirement 3: LLM Layer Implementation
+
+✅ **3.a Context Combination**: 
+- Merges baseline + embedding results
+- Deduplicates records
+- Formats for LLM consumption
+- Code: `app.py` lines 216-232
+
+✅ **3.b Structured Prompt**: 
+- Context + Persona + Task structure
+- Grounds LLM in KG data
+- Code: `llm_layer/prompts.py`
+
+✅ **3.c Multi-Model Support**: 
+- 6 models across 5 providers
+- OpenAI, Anthropic, Google, OpenRouter, HuggingFace
+- Code: `llm_layer/models.py`
+
+✅ **3.d Evaluation Framework**:
+- **Quantitative**: Response time, tokens, cost, speed
+- **Qualitative**: Relevance, accuracy, naturalness, completeness, groundedness
+- Evaluation script: `evaluate_llms.py`
+- Sample results: `llm_evaluation_results_SAMPLE.json`
+
+**Run evaluation**: 
+```bash
+python evaluate_llms.py --models gpt-3.5-turbo claude-3-haiku-20240307 mistralai/mistral-7b-instruct
+```
+
+**See**: [LLM_EVALUATION_GUIDE.md](LLM_EVALUATION_GUIDE.md) for detailed instructions.
 

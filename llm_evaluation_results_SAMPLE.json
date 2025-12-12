@@ -1,0 +1,128 @@
+{
+  "evaluation_date": "2025-12-12T10:30:00",
+  "total_queries": 3,
+  "models_tested": [
+    "gpt-3.5-turbo",
+    "claude-3-haiku-20240307",
+    "mistralai/mistral-7b-instruct"
+  ],
+  "results": [
+    {
+      "query": "Which flights have the worst delays?",
+      "context_retrieved": 10,
+      "baseline_count": 10,
+      "embedding_count": 0,
+      "models": {
+        "gpt-3.5-turbo": {
+          "response": "Based on the knowledge graph data, here are the flights with the worst delays:\n\n1. Flight AA123 has an average delay of 87.5 minutes across 15 journeys, with a maximum delay of 142 minutes\n2. Flight DL456 has an average delay of 76.3 minutes across 12 journeys, with a maximum delay of 130 minutes\n3. Flight UA789 has an average delay of 68.9 minutes across 18 journeys, with a maximum delay of 115 minutes\n\nThese flights consistently show significant arrival delays and should be investigated for operational improvements.",
+          "metrics": {
+            "model": "gpt-3.5-turbo",
+            "provider": "openai",
+            "response_time": 2.34,
+            "estimated_tokens": 450
+          },
+          "elapsed_time": 2.34
+        },
+        "claude-3-haiku-20240307": {
+          "response": "According to the flight data from the knowledge graph, the flights with the worst delays are:\n\n**Flight AA123**: Average arrival delay of 87.5 minutes\n- 15 total journeys tracked\n- Maximum delay recorded: 142 minutes\n- This flight shows consistent delay patterns\n\n**Flight DL456**: Average arrival delay of 76.3 minutes\n- 12 total journeys tracked\n- Maximum delay recorded: 130 minutes\n\n**Flight UA789**: Average arrival delay of 68.9 minutes\n- 18 total journeys tracked\n- Maximum delay recorded: 115 minutes\n\nThese flights would benefit from schedule optimization and operational analysis to reduce delays.",
+          "metrics": {
+            "model": "claude-3-haiku-20240307",
+            "provider": "anthropic",
+            "response_time": 1.89,
+            "estimated_tokens": 420
+          },
+          "elapsed_time": 1.89
+        },
+        "mistralai/mistral-7b-instruct": {
+          "response": "The flights with the worst delays based on the data are:\n\nAA123 - average delay 87.5 minutes (15 journeys, max 142 min)\nDL456 - average delay 76.3 minutes (12 journeys, max 130 min)  \nUA789 - average delay 68.9 minutes (18 journeys, max 115 min)\n\nThese flights have significant delays and need attention.",
+          "metrics": {
+            "model": "mistralai/mistral-7b-instruct",
+            "provider": "openrouter",
+            "response_time": 3.12,
+            "estimated_tokens": 480
+          },
+          "elapsed_time": 3.12
+        }
+      },
+      "timestamp": "2025-12-12T10:30:15"
+    },
+    {
+      "query": "Show me flights from JFK to LAX",
+      "context_retrieved": 8,
+      "baseline_count": 8,
+      "embedding_count": 0,
+      "models": {
+        "gpt-3.5-turbo": {
+          "response": "Here are the flights from JFK to LAX found in the knowledge graph:\n\n1. **Flight AA100**\n   - Fleet Type: Boeing 737\n   - Departure: JFK\n   - Arrival: LAX\n\n2. **Flight DL200**\n   - Fleet Type: Airbus A320\n   - Departure: JFK\n   - Arrival: LAX\n\n3. **Flight UA300**\n   - Fleet Type: Boeing 757\n   - Departure: JFK\n   - Arrival: LAX\n\n4. **Flight B6400**\n   - Fleet Type: Airbus A321\n   - Departure: JFK\n   - Arrival: LAX\n\nAll of these flights operate on the JFK-LAX route.",
+          "metrics": {
+            "model": "gpt-3.5-turbo",
+            "provider": "openai",
+            "response_time": 1.98,
+            "estimated_tokens": 380
+          },
+          "elapsed_time": 1.98
+        },
+        "claude-3-haiku-20240307": {
+          "response": "Based on the knowledge graph data, here are the flights from JFK (New York) to LAX (Los Angeles):\n\n1. AA100 - Boeing 737\n2. DL200 - Airbus A320\n3. UA300 - Boeing 757\n4. B6400 - Airbus A321\n\nThese four flights operate on the JFK to LAX route with various aircraft types.",
+          "metrics": {
+            "model": "claude-3-haiku-20240307",
+            "provider": "anthropic",
+            "response_time": 1.45,
+            "estimated_tokens": 350
+          },
+          "elapsed_time": 1.45
+        },
+        "mistralai/mistral-7b-instruct": {
+          "response": "Flights from JFK to LAX:\n- AA100 (Boeing 737)\n- DL200 (Airbus A320)\n- UA300 (Boeing 757)\n- B6400 (Airbus A321)",
+          "metrics": {
+            "model": "mistralai/mistral-7b-instruct",
+            "provider": "openrouter",
+            "response_time": 2.67,
+            "estimated_tokens": 410
+          },
+          "elapsed_time": 2.67
+        }
+      },
+      "timestamp": "2025-12-12T10:30:45"
+    },
+    {
+      "query": "What are the routes with low passenger satisfaction?",
+      "context_retrieved": 15,
+      "baseline_count": 15,
+      "embedding_count": 0,
+      "models": {
+        "gpt-3.5-turbo": {
+          "response": "Based on the knowledge graph data, here are the routes with low passenger satisfaction (average food satisfaction score below 3.0):\n\n1. **ORD → MIA**\n   - Average satisfaction: 2.4\n   - Average delay: 45.2 minutes\n   - Total journeys: 23\n\n2. **DFW → ATL**\n   - Average satisfaction: 2.6\n   - Average delay: 38.7 minutes\n   - Total journeys: 18\n\n3. **LAX → DEN**\n   - Average satisfaction: 2.7\n   - Average delay: 32.1 minutes\n   - Total journeys: 21\n\n4. **JFK → SFO**\n   - Average satisfaction: 2.8\n   - Average delay: 28.4 minutes\n   - Total journeys: 25\n\nThese routes show correlation between low satisfaction and delays. Recommend investigating food service quality and schedule reliability on these routes.",
+          "metrics": {
+            "model": "gpt-3.5-turbo",
+            "provider": "openai",
+            "response_time": 2.56,
+            "estimated_tokens": 520
+          },
+          "elapsed_time": 2.56
+        },
+        "claude-3-haiku-20240307": {
+          "response": "Routes with low passenger satisfaction (food satisfaction score < 3.0):\n\n**ORD to MIA**: \n- Average satisfaction: 2.4/5\n- Average delay: 45 minutes\n- 23 journeys recorded\n\n**DFW to ATL**:\n- Average satisfaction: 2.6/5\n- Average delay: 39 minutes\n- 18 journeys recorded\n\n**LAX to DEN**:\n- Average satisfaction: 2.7/5\n- Average delay: 32 minutes\n- 21 journeys recorded\n\n**JFK to SFO**:\n- Average satisfaction: 2.8/5\n- Average delay: 28 minutes\n- 25 journeys recorded\n\nNotable pattern: Routes with lower satisfaction also experience higher delays, suggesting operational improvements could boost customer satisfaction.",
+          "metrics": {
+            "model": "claude-3-haiku-20240307",
+            "provider": "anthropic",
+            "response_time": 2.12,
+            "estimated_tokens": 490
+          },
+          "elapsed_time": 2.12
+        },
+        "mistralai/mistral-7b-instruct": {
+          "response": "Routes with low satisfaction (under 3.0):\n\nORD-MIA: 2.4 avg satisfaction, 45 min avg delay, 23 journeys\nDFW-ATL: 2.6 avg satisfaction, 39 min avg delay, 18 journeys\nLAX-DEN: 2.7 avg satisfaction, 32 min avg delay, 21 journeys\nJFK-SFO: 2.8 avg satisfaction, 28 min avg delay, 25 journeys\n\nLow satisfaction correlates with delays.",
+          "metrics": {
+            "model": "mistralai/mistral-7b-instruct",
+            "provider": "openrouter",
+            "response_time": 3.45,
+            "estimated_tokens": 540
+          },
+          "elapsed_time": 3.45
+        }
+      },
+      "timestamp": "2025-12-12T10:31:20"
+    }
+  ]
+}
