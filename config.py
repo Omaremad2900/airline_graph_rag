@@ -15,6 +15,7 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 HUGGINGFACE_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 
 # Embedding Models (for comparison)
 EMBEDDING_MODELS = {
@@ -59,6 +60,16 @@ LLM_MODELS = {
     },
     "meta-llama/llama-3-8b-instruct": {
         "provider": "openrouter",
+        "max_tokens": 1000,
+        "temperature": 0.7
+    },
+    "llama3-8b-8192": {
+        "provider": "groq",
+        "max_tokens": 1000,
+        "temperature": 0.7
+    },
+    "gemma2-9b-it": {
+        "provider": "groq",
         "max_tokens": 1000,
         "temperature": 0.7
     }
