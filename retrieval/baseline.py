@@ -1,5 +1,8 @@
 """Baseline retrieval using Cypher queries."""
 from utils.neo4j_connector import Neo4jConnector
+import logging
+
+logger = logging.getLogger(__name__)
 import config
 
 
@@ -225,13 +228,25 @@ class BaselineRetriever:
         Retrieve information based on intent and entities.
         
         Args:
-            intent: Classified intent
-            entities: Extracted entities
+            intent: Classified intent from preprocessing layer
+            entities: Extracted entities from preprocessing layer
+                     Format: {"ENTITY_TYPE": [{"value": ..., "type": "ENTITY_TYPE"}, ...], ...}
+                     Entity types: AIRPORT, FLIGHT, PASSENGER, JOURNEY, ROUTE, DATE, NUMBER
             
         Returns:
             Tuple of (list of retrieved records, list of executed queries with info)
         """
+        # Input validation
+        if not isinstance(intent, str):
+            logger.warning(f"Invalid intent type: {type(intent)}, defaulting to 'general_question'")
+            intent = "general_question"
+        
+        if not isinstance(entities, dict):
+            logger.warning(f"Invalid entities type: {type(entities)}, using empty dict")
+            entities = {}
+        
         if intent not in self.query_templates:
+            logger.info(f"Intent '{intent}' not in templates, defaulting to 'general_question'")
             intent = "general_question"
         
         templates = self.query_templates[intent]
@@ -241,7 +256,9 @@ class BaselineRetriever:
         # For flight_search, prioritize by_route when both airports are present
         if intent == "flight_search" and entities.get("AIRPORT"):
             airports = entities.get("AIRPORT", [])
-            airport_codes = [a["value"] for a in airports if a.get("type") == "AIRPORT_CODE"]
+            if not isinstance(airports, list):
+                airports = []
+            airport_codes = [a["value"] for a in airports if isinstance(a, dict) and a.get("type") == "AIRPORT_CODE"]
             if len(airport_codes) >= 2:
                 # Try by_route first
                 template_order = ["by_route", "by_departure", "by_arrival"]
@@ -272,8 +289,10 @@ class BaselineRetriever:
                     })
                     if result:
                         results.extend(result)
+                else:
+                    logger.debug(f"Skipping template '{template_name}' - required parameters missing")
             except Exception as e:
-                print(f"Error executing query {template_name}: {e}")
+                logger.error(f"Error executing query {template_name}: {e}", exc_info=True)
                 continue
         
         # Remove duplicates based on common keys
@@ -288,13 +307,38 @@ class BaselineRetriever:
         return unique_results[:50], executed_queries  # Limit total results
     
     def _build_parameters(self, entities: dict, template_name: str) -> dict:
-        """Build query parameters from extracted entities."""
+        """
+        Build query parameters from extracted entities.
+        
+        Args:
+            entities: Dictionary of extracted entities from preprocessing layer
+                     Format: {"ENTITY_TYPE": [{"value": ..., "type": "ENTITY_TYPE"}, ...], ...}
+            template_name: Name of the query template being used
+            
+        Returns:
+            Dictionary of parameters for Cypher query, or None if required parameters are missing
+        """
+        if not isinstance(entities, dict):
+            return None
+        
+        if not isinstance(template_name, str):
+            return None
+        
         parameters = {}
         
-        # Extract airport codes
+        # Extract airport codes (consistent format: list of dicts with "value" and "type" keys)
         airports = entities.get("AIRPORT", [])
-        airport_codes = [a["value"] for a in airports if a.get("type") == "AIRPORT_CODE"]
-        airport_names = [a["value"] for a in airports if a.get("type") == "AIRPORT_NAME"]
+        if not isinstance(airports, list):
+            airports = []
+        
+        airport_codes = []
+        airport_names = []
+        for a in airports:
+            if isinstance(a, dict) and "value" in a:
+                if a.get("type") == "AIRPORT_CODE":
+                    airport_codes.append(a["value"])
+                elif a.get("type") == "AIRPORT_NAME":
+                    airport_names.append(a["value"])
         
         # Map airport names to codes (simplified - would need a mapping)
         # Prioritize by_route when both airports are present
@@ -333,18 +377,28 @@ class BaselineRetriever:
                 # No arrival airport found
                 return None
         
-        # Extract flight numbers
+        # Extract flight numbers (consistent format: list of dicts with "value" and "type" keys)
         flights = entities.get("FLIGHT", [])
-        if flights:
+        if not isinstance(flights, list):
+            flights = []
+        
+        if flights and isinstance(flights[0], dict) and "value" in flights[0]:
             parameters["flight_number"] = flights[0]["value"]
         
-        # Extract numbers for thresholds
+        # Extract numbers for thresholds (consistent format: list of dicts with "value" and "type" keys)
         numbers = entities.get("NUMBER", [])
-        if numbers:
-            if "delay" in template_name:
-                parameters["min_delay"] = float(numbers[0]["value"])
-            elif "satisfaction" in template_name or "score" in template_name:
-                parameters["min_score"] = float(numbers[0]["value"])
+        if not isinstance(numbers, list):
+            numbers = []
+        
+        if numbers and isinstance(numbers[0], dict) and "value" in numbers[0]:
+            try:
+                if "delay" in template_name:
+                    parameters["min_delay"] = float(numbers[0]["value"])
+                elif "satisfaction" in template_name or "score" in template_name:
+                    parameters["min_score"] = float(numbers[0]["value"])
+            except (ValueError, TypeError):
+                # Invalid number value, skip
+                pass
         else:
             # Provide default thresholds if no number specified
             if "delay" in template_name and "flights_with_delays" in template_name:
@@ -354,8 +408,62 @@ class BaselineRetriever:
                 # Default: satisfaction below 3
                 parameters["min_score"] = 3.0
         
-        # Extract feedback ID
-        # This would need more sophisticated entity extraction
+        # Extract Journey IDs (for journey_details query)
+        # Consistent format: list of dicts with "value" and "type" keys
+        journeys = entities.get("JOURNEY", [])
+        if not isinstance(journeys, list):
+            journeys = []
+        
+        if journeys and isinstance(journeys[0], dict) and "value" in journeys[0]:
+            journey_id = str(journeys[0]["value"])
+            # Normalize journey ID format (handle different formats like journey_12345, J12345, etc.)
+            # Entity extractor returns just the numeric ID, but Neo4j stores it as feedback_ID
+            # Try to match the format used in the database
+            if journey_id.isdigit():
+                # If it's just numbers, use as-is (Neo4j feedback_ID might be numeric or string)
+                parameters["feedback_id"] = journey_id
+            elif not journey_id.startswith(("journey_", "J", "j")):
+                # If it doesn't have a prefix, try adding one
+                parameters["feedback_id"] = f"journey_{journey_id}"
+            else:
+                parameters["feedback_id"] = journey_id
+        
+        # Extract Passenger IDs (for future passenger-specific queries)
+        # Consistent format: list of dicts with "value" and "type" keys
+        passengers = entities.get("PASSENGER", [])
+        if not isinstance(passengers, list):
+            passengers = []
+        
+        if passengers and isinstance(passengers[0], dict) and "value" in passengers[0]:
+            passenger_id = str(passengers[0]["value"])
+            # Normalize passenger ID format
+            if passenger_id.isdigit():
+                parameters["passenger_id"] = passenger_id
+            elif not passenger_id.startswith(("passenger_", "P", "p")):
+                parameters["passenger_id"] = f"passenger_{passenger_id}"
+            else:
+                parameters["passenger_id"] = passenger_id
+        
+        # Extract Dates (for time-based filtering)
+        # Consistent format: list of dicts with "value" and "type" keys
+        dates = entities.get("DATE", [])
+        if not isinstance(dates, list):
+            dates = []
+        
+        if dates and isinstance(dates[0], dict) and "value" in dates[0]:
+            date_value = dates[0]["value"]
+            parameters["date"] = str(date_value)
+        
+        # Extract Route mentions (routes are usually implicit via airport pairs, but can be explicit)
+        # Consistent format: list of dicts with "value" and "type" keys
+        routes = entities.get("ROUTE", [])
+        if not isinstance(routes, list):
+            routes = []
+        
+        if routes and isinstance(routes[0], dict) and "value" in routes[0]:
+            route_value = routes[0]["value"]
+            if route_value != "mentioned":  # If specific route name provided
+                parameters["route_name"] = str(route_value)
         
         # Templates that don't require parameters (can run without entities)
         no_param_templates = [

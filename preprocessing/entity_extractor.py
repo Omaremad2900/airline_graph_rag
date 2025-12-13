@@ -1,6 +1,9 @@
 """Entity extraction from user queries using NER."""
 import re
+import logging
 import config
+
+logger = logging.getLogger(__name__)
 
 
 class EntityExtractor:
@@ -92,6 +95,9 @@ class EntityExtractor:
     
     def extract_airports(self, query: str) -> list:
         """Extract airport codes and names from query."""
+        if not query or not isinstance(query, str):
+            return []
+        
         airports = []
         query_upper = query.upper()
         query_lower = query.lower()
@@ -128,11 +134,17 @@ class EntityExtractor:
     
     def extract_flights(self, query: str) -> list:
         """Extract flight numbers from query."""
+        if not query or not isinstance(query, str):
+            return []
+        
         flights = re.findall(self.flight_number_pattern, query.upper())
         return [{"value": flight, "type": "FLIGHT"} for flight in flights]
     
     def extract_journeys(self, query: str) -> list:
         """Extract journey IDs from query."""
+        if not query or not isinstance(query, str):
+            return []
+        
         journeys = []
         # Extract journey IDs (e.g., journey_12345, journey-12345, J12345, j_12345)
         # Must have explicit prefix to avoid matching years or dates
@@ -147,6 +159,9 @@ class EntityExtractor:
     
     def extract_passengers(self, query: str) -> list:
         """Extract passenger IDs from query."""
+        if not query or not isinstance(query, str):
+            return []
+        
         passengers = []
         # Extract passenger IDs (e.g., passenger_12345, passenger-12345, P12345, p_12345)
         # Must have explicit prefix to avoid matching years or dates
@@ -161,6 +176,9 @@ class EntityExtractor:
     
     def extract_routes(self, query: str) -> list:
         """Extract route mentions from query (routes are typically implicit via airport pairs)."""
+        if not query or not isinstance(query, str):
+            return []
+        
         # Routes are usually extracted as airport pairs, but we can identify route mentions
         routes = []
         matches = re.finditer(self.route_pattern, query, re.IGNORECASE)
@@ -175,6 +193,9 @@ class EntityExtractor:
     
     def extract_dates(self, query: str) -> list:
         """Extract dates from query."""
+        if not query or not isinstance(query, str):
+            return []
+        
         dates = []
         full_date_matches = set()
         
@@ -198,6 +219,9 @@ class EntityExtractor:
     
     def extract_numbers(self, query: str, exclude_dates: list = None, exclude_ids: set = None) -> list:
         """Extract numeric values from query, excluding those in dates and entity IDs."""
+        if not query or not isinstance(query, str):
+            return []
+        
         if exclude_dates is None:
             exclude_dates = []
         if exclude_ids is None:
@@ -235,32 +259,110 @@ class EntityExtractor:
         
         return numbers
     
+    def _map_qualitative_to_number(self, query: str) -> list:
+        """
+        Map qualitative terms to numeric thresholds for filtering.
+        Handles terms like "low", "high", "poor", "excellent" related to satisfaction/ratings.
+        
+        Args:
+            query: User input query (must be a non-empty string)
+            
+        Returns:
+            List of number entities representing qualitative thresholds
+            Multiple values can be returned if query contains multiple qualitative terms
+            (e.g., "low satisfaction and high ratings" returns both 3.0 and 4.0)
+        """
+        if not query or not isinstance(query, str):
+            return []
+        
+        numbers = []
+        query_lower = query.lower()
+        
+        # Low satisfaction/ratings patterns (checked first, most specific patterns first)
+        if re.search(r'\blow\s+(?:passenger\s+)?satisfaction\b', query_lower):
+            numbers.append({"value": 3.0, "type": "NUMBER"})
+        elif re.search(r'\blow\s+ratings?\b', query_lower):
+            numbers.append({"value": 3.0, "type": "NUMBER"})
+        elif re.search(r'\bpoor\s+(?:passenger\s+)?satisfaction\b', query_lower):
+            numbers.append({"value": 2.5, "type": "NUMBER"})
+        elif re.search(r'\bpoor\s+ratings?\b', query_lower):
+            numbers.append({"value": 2.5, "type": "NUMBER"})
+        
+        # High satisfaction/ratings patterns (separate if to allow both low and high in same query)
+        # Most specific patterns checked first
+        if re.search(r'\bexcellent\s+(?:passenger\s+)?satisfaction\b', query_lower):
+            numbers.append({"value": 4.5, "type": "NUMBER"})
+        elif re.search(r'\bexcellent\s+ratings?\b', query_lower):
+            numbers.append({"value": 4.5, "type": "NUMBER"})
+        elif re.search(r'\bexcellent\s+feedback\b', query_lower):
+            numbers.append({"value": 4.5, "type": "NUMBER"})
+        elif re.search(r'\bhigh\s+(?:passenger\s+)?satisfaction\b', query_lower):
+            numbers.append({"value": 4.0, "type": "NUMBER"})
+        elif re.search(r'\bhigh\s+ratings?\b', query_lower):
+            numbers.append({"value": 4.0, "type": "NUMBER"})
+        
+        return numbers
+    
     def extract_entities(self, query: str) -> dict:
         """
         Extract all entities from the query.
         
         Args:
-            query: User input query
+            query: User input query (must be a non-empty string)
             
         Returns:
-            Dictionary of extracted entities by type
+            Dictionary of extracted entities by type (only includes non-empty entity lists)
+            Format: {"ENTITY_TYPE": [{"value": ..., "type": "ENTITY_TYPE"}, ...], ...}
         """
-        # Extract dates first (needed to exclude numbers from dates)
-        dates = self.extract_dates(query)
+        # Input validation
+        if not query or not isinstance(query, str):
+            logger.warning("Invalid query provided to extract_entities, returning empty dict")
+            return {}
         
-        # Extract other entities
-        entities = {
-            "AIRPORT": self.extract_airports(query),
-            "FLIGHT": self.extract_flights(query),
-            "PASSENGER": self.extract_passengers(query),
-            "JOURNEY": self.extract_journeys(query),
-            "ROUTE": self.extract_routes(query),
-            "DATE": dates,
-            "NUMBER": self.extract_numbers(query, exclude_dates=dates)
-        }
+        if not query.strip():
+            logger.warning("Empty query provided to extract_entities, returning empty dict")
+            return {}
         
-        # Filter out empty lists
-        return {k: v for k, v in entities.items() if v}
+        try:
+            # Extract dates first (needed to exclude numbers from dates)
+            dates = self.extract_dates(query)
+            
+            # Extract journey and passenger IDs to exclude from number extraction
+            # This prevents numbers that are part of entity IDs from being extracted as separate NUMBER entities
+            journey_ids = set()
+            passenger_ids = set()
+            for journey in self.extract_journeys(query):
+                journey_ids.add(journey["value"])
+            for passenger in self.extract_passengers(query):
+                passenger_ids.add(passenger["value"])
+            exclude_ids = journey_ids | passenger_ids
+            
+            # Extract numeric values (excludes numbers in dates and entity IDs)
+            numeric_values = self.extract_numbers(query, exclude_dates=dates, exclude_ids=exclude_ids)
+            
+            # Map qualitative terms to numbers (e.g., "low satisfaction" -> 3.0)
+            # This extends the numeric_values list with qualitative mappings
+            qualitative_numbers = self._map_qualitative_to_number(query)
+            numeric_values.extend(qualitative_numbers)
+            
+            # Extract all entity types
+            entities = {
+                "AIRPORT": self.extract_airports(query),
+                "FLIGHT": self.extract_flights(query),
+                "PASSENGER": self.extract_passengers(query),
+                "JOURNEY": self.extract_journeys(query),
+                "ROUTE": self.extract_routes(query),
+                "DATE": dates,
+                "NUMBER": numeric_values
+            }
+            
+            # Filter out empty lists to return only entities that were found
+            result = {k: v for k, v in entities.items() if v}
+            return result
+            
+        except Exception as e:
+            logger.error(f"Unexpected error during entity extraction: {e}", exc_info=True)
+            return {}
     
     def extract_with_llm(self, query: str, llm=None) -> dict:
         """
