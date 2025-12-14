@@ -3,8 +3,6 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-import networkx as nx
-from pyvis.network import Network
 import json
 from typing import Dict, List
 
@@ -76,33 +74,6 @@ def initialize_components():
 def format_cypher_query(query: str) -> str:
     """Format Cypher query for display."""
     return query.strip()
-
-
-def create_graph_visualization(results: List[Dict]) -> Network:
-    """Create a network graph visualization from query results."""
-    G = nx.DiGraph()
-    
-    # Extract nodes and edges from results
-    for record in results[:20]:  # Limit for performance
-        # Add nodes based on record keys
-        for key, value in record.items():
-            if isinstance(value, (str, int, float)):
-                node_id = f"{key}_{value}"
-                G.add_node(node_id, label=f"{key}: {value}", type=key)
-        
-        # Add edges between related nodes
-        keys = list(record.keys())
-        for i in range(len(keys) - 1):
-            if keys[i] in record and keys[i+1] in record:
-                source = f"{keys[i]}_{record[keys[i]]}"
-                target = f"{keys[i+1]}_{record[keys[i+1]]}"
-                if source in G and target in G:
-                    G.add_edge(source, target)
-    
-    # Create Pyvis network
-    net = Network(height="500px", width="100%", directed=True)
-    net.from_nx(G)
-    return net
 
 
 def main():
@@ -384,15 +355,6 @@ def main():
                     st.write(f"Total records retrieved: {len(unique_results)}")
                     st.write(f"Baseline results: {len(baseline_results)}")
                     st.write(f"Embedding results: {len(embedding_results)}")
-                
-                # Graph visualization
-                if st.checkbox("Show Graph Visualization"):
-                    try:
-                        net = create_graph_visualization(unique_results)
-                        net.save_graph("graph.html")
-                        st.components.v1.html(open("graph.html", "r").read(), height=600)
-                    except Exception as e:
-                        st.warning(f"Graph visualization error: {e}")
             else:
                 st.warning("No results retrieved from knowledge graph.")
             

@@ -1,0 +1,213 @@
+{
+  "intent_classification": {
+    "ambiguous_queries": [
+      {
+        "query": "Show me flights",
+        "predicted": "flight_search",
+        "possible_intents": [
+          "flight_search",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "What flights?",
+        "predicted": "flight_search",
+        "possible_intents": [
+          "flight_search",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Flights",
+        "predicted": "flight_search",
+        "possible_intents": [
+          "flight_search",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Tell me about delays",
+        "predicted": "delay_analysis",
+        "possible_intents": [
+          "delay_analysis",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "What about satisfaction?",
+        "predicted": "passenger_satisfaction",
+        "possible_intents": [
+          "passenger_satisfaction",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Routes",
+        "predicted": "route_analysis",
+        "possible_intents": [
+          "route_analysis",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Performance",
+        "predicted": "performance_metrics",
+        "possible_intents": [
+          "performance_metrics",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Compare",
+        "predicted": "performance_metrics",
+        "possible_intents": [
+          "performance_metrics",
+          "recommendation",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Best flights",
+        "predicted": "flight_search",
+        "possible_intents": [
+          "flight_search",
+          "recommendation",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      },
+      {
+        "query": "Flight information",
+        "predicted": "flight_search",
+        "possible_intents": [
+          "flight_search",
+          "general_question"
+        ],
+        "status": "CORRECT (but ambiguous)"
+      }
+    ],
+    "unrecognized_intents": [
+      {
+        "query": "Upgrade my seat",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Weather at airport",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Airport parking",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Lounge access",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Meal preferences",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Special assistance",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Visa requirements",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      },
+      {
+        "query": "Currency exchange",
+        "predicted": "general_question",
+        "status": "UNRECOGNIZED"
+      }
+    ],
+    "multi_intent_queries": [
+      {
+        "query": "Compare delays and satisfaction",
+        "predicted": "delay_analysis",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Show me flights and routes",
+        "predicted": "route_analysis",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "What are delays and ratings?",
+        "predicted": "delay_analysis",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Compare performance and satisfaction",
+        "predicted": "performance_metrics",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Find flights and check delays",
+        "predicted": "flight_search",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Show routes and passenger feedback",
+        "predicted": "passenger_satisfaction",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Compare delays with satisfaction ratings",
+        "predicted": "passenger_satisfaction",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Find flights with good ratings",
+        "predicted": "flight_search",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Show delays and recommend best routes",
+        "predicted": "delay_analysis",
+        "status": "SINGLE_INTENT_ONLY"
+      },
+      {
+        "query": "Compare routes and performance metrics",
+        "predicted": "performance_metrics",
+        "status": "SINGLE_INTENT_ONLY"
+      }
+    ]
+  },
+  "entity_extraction": {
+    "false_positives": [],
+    "false_negatives": [
+      {
+        "query": "Show flights from XYZ to ABC",
+        "expected_entities": [
+          "XYZ",
+          "ABC"
+        ],
+        "missed_entities": [
+          "XYZ",
+          "ABC"
+        ],
+        "entity_type": "AIRPORT",
+        "description": "Valid airport codes not in whitelist",
+        "extracted_entities": {}
+      }
+    ],
+    "date_format_issues": [],
+    "missing_entities": []
+  }
+}

@@ -257,3 +257,5 @@ The retrieval layer is **fully consistent** with the preprocessing layer:
 
 The implementation ensures that entities extracted by the preprocessing layer can be reliably used by the retrieval layer without format mismatches or missing entity types.
 
+
+

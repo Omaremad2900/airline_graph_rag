@@ -79,7 +79,14 @@ INTENTS = [
     "journey_insights",
     "performance_metrics",
     "recommendation",
-    "general_question"
+    "general_question",
+    "booking",
+    "cancellation",
+    "check_in",
+    "flight_status",
+    "seat_selection",
+    "baggage",
+    "loyalty"
 ]
 
 # Entity Types

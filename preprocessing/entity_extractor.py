@@ -17,11 +17,24 @@ class EntityExtractor:
             "PHX", "MIA", "SEA", "IAH", "EWR", "MSP", "DTW", "BWI", "IAD",
             "BOS", "CLT", "LGA", "DCA", "SLC", "PDX", "BNA", "AUS", "SJC",
             "OAK", "RDU", "MCI", "STL", "TPA", "SAN", "DAL", "HOU", "FLL",
-            # International airports
-            "LHR", "CDG", "AMS", "FRA", "DXB", "NRT", "HND", "PEK", "PVG",
-            "CAN", "SIN", "ICN", "BKK", "KUL", "IST", "MAD", "BCN", "FCO",
-            "MUC", "ZUR", "VIE", "CPH", "OSL", "ARN", "HEL", "DUB", "MAN",
-            "YYZ", "YVR", "YUL", "SYD", "MEL", "AKL", "JNB", "CAI", "DXB"
+            # International airports - Europe
+            "LHR", "LGW", "STN", "CDG", "ORY", "AMS", "FRA", "MUC", "ZUR",
+            "VIE", "CPH", "OSL", "ARN", "HEL", "DUB", "MAN", "MAD", "BCN",
+            "FCO", "MXP", "LIN", "IST", "ATH", "PRG", "WAW", "BUD", "LIS",
+            # International airports - Asia
+            "NRT", "HND", "KIX", "PEK", "PVG", "CAN", "SZX", "CTU", "XIY",
+            "KMG", "URC", "XMN", "TAO", "TSN", "DLC", "NGB", "HGH", "NKG",
+            "WUH", "CSX", "CGO", "TYN", "SJW", "HRB", "CGQ", "SIN", "BKK",
+            "DMK", "CNX", "HKT", "KUL", "PEN", "LGK", "BKI", "KCH", "ICN",
+            "GMP", "PUS", "CJU", "TAE", "HKG", "MFM", "TPE", "KHH", "RMQ",
+            # International airports - Middle East
+            "DXB", "AUH", "DOH", "KWI", "BAH", "RUH", "JED", "DMM", "RIY",
+            "AMM", "BEY", "TLV", "CAI", "JNB", "CPT", "ADD", "NBO", "DAR",
+            # International airports - Americas
+            "YYZ", "YVR", "YUL", "YYC", "YEG", "YOW", "YHZ", "MEX", "CUN",
+            "GDL", "MTY", "GRU", "GIG", "BSB", "SCL", "LIM", "BOG", "UIO",
+            # International airports - Oceania
+            "SYD", "MEL", "BNE", "PER", "ADL", "AKL", "WLG", "CHC", "DUD"
         }
         
         # Common English words to exclude (3-letter uppercase words that aren't airports)
@@ -71,9 +84,27 @@ class EntityExtractor:
         # Date patterns (ordered by specificity - most specific first)
         self.date_patterns = [
             r'\b\d{4}-\d{2}-\d{2}\b',  # YYYY-MM-DD
-            r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # MM/DD/YYYY
-            r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b',  # Month name format
+            r'\b\d{1,2}/\d{1,2}/\d{4}\b',  # MM/DD/YYYY or DD/MM/YYYY
+            r'\b\d{1,2}/\d{1,2}/\d{2}\b',  # MM/DD/YY or DD/MM/YY
+            r'\b\d{1,2}-\d{1,2}-\d{4}\b',  # DD-MM-YYYY or MM-DD-YYYY
+            r'\b\d{1,2}\.\d{1,2}\.\d{4}\b',  # DD.MM.YYYY or MM.DD.YYYY
+            r'\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{1,2},?\s+\d{4}\b',  # Full month name format
+            r'\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{1,2},?\s+\d{4}\b',  # Abbreviated month format
+            r'\b\d{1,2}(?:st|nd|rd|th)?\s+(?:january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\b',  # Ordinal date format
         ]
+        
+        # Relative date patterns
+        self.relative_date_patterns = {
+            r'\btomorrow\b': 1,
+            r'\btoday\b': 0,
+            r'\byesterday\b': -1,
+            r'\bnext\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b': None,  # Will be handled separately
+            r'\bthis\s+(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b': None,
+            r'\bnext\s+week\b': None,  # Will be handled separately
+            r'\bthis\s+week\b': None,
+            r'\bnext\s+month\b': None,
+            r'\bthis\s+month\b': None,
+        }
         
         # Year-only pattern (used only if not part of full date)
         self.year_pattern = r'\b\d{4}\b'
@@ -109,9 +140,11 @@ class EntityExtractor:
             if code in self.valid_airport_codes and code not in self.excluded_words:
                 airports.append({"value": code, "type": "AIRPORT_CODE"})
         
-        # Extract airport names
+        # Extract airport names (only if they appear as whole words to avoid false positives)
         for airport in self.airport_names:
-            if airport in query_lower:
+            # Use word boundaries to avoid matching "sea" in "Search" or "las" in "class"
+            pattern = r'\b' + re.escape(airport) + r'\b'
+            if re.search(pattern, query_lower, re.IGNORECASE):
                 airports.append({"value": airport, "type": "AIRPORT_NAME"})
         
         # Deduplicate: if same airport found as both code and name, keep only code
@@ -208,6 +241,13 @@ class EntityExtractor:
                 year_match = re.search(r'\d{4}', match)
                 if year_match:
                     full_date_matches.add(year_match.group())
+        
+        # Extract relative dates
+        for pattern, days_offset in self.relative_date_patterns.items():
+            matches = re.finditer(pattern, query, re.IGNORECASE)
+            for match in matches:
+                relative_date = match.group(0)
+                dates.append({"value": relative_date, "type": "DATE"})
         
         # Extract year-only if not part of a full date
         year_matches = re.findall(self.year_pattern, query)
@@ -363,35 +403,4 @@ class EntityExtractor:
         except Exception as e:
             logger.error(f"Unexpected error during entity extraction: {e}", exc_info=True)
             return {}
-    
-    def extract_with_llm(self, query: str, llm=None) -> dict:
-        """
-        Extract entities using LLM (optional enhancement).
-        
-        Args:
-            query: User input query
-            llm: Optional LLM instance for extraction
-            
-        Returns:
-            Dictionary of extracted entities
-        """
-        # Fallback to rule-based if no LLM
-        if llm is None:
-            return self.extract_entities(query)
-        
-        prompt = f"""Extract entities from this airline query. Return JSON with entity types and values:
-Query: {query}
-
-Entity types: AIRPORT, FLIGHT, PASSENGER, JOURNEY, DATE, NUMBER
-
-Return format: {{"AIRPORT": ["code1", "code2"], "FLIGHT": ["AA123"], ...}}"""
-        
-        try:
-            response = llm.invoke(prompt)
-            # Parse JSON response (simplified - would need proper JSON parsing)
-            # For now, fallback to rule-based
-            return self.extract_entities(query)
-        except Exception as e:
-            print(f"LLM entity extraction failed: {e}")
-            return self.extract_entities(query)
 

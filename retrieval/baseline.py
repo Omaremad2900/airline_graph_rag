@@ -77,6 +77,33 @@ class BaselineRetriever:
                            count
                     ORDER BY avg_delay DESC
                     LIMIT 10
+                """,
+                "cancelled_flight_patterns": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WHERE j.arrival_delay_minutes > 60
+                    WITH f,
+                         COUNT(j) as high_delay_count,
+                         AVG(j.arrival_delay_minutes) as avg_delay
+                    WHERE high_delay_count >= 3
+                    RETURN f.flight_number as flight_number,
+                           high_delay_count,
+                           avg_delay,
+                           'High delay rate - potential cancellation risk' as note
+                    ORDER BY avg_delay DESC
+                    LIMIT 15
+                """,
+                "flight_reliability": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WITH f,
+                         COUNT(j) as total_journeys,
+                         SUM(CASE WHEN j.arrival_delay_minutes > 60 THEN 1 ELSE 0 END) as high_delay_count
+                    WHERE total_journeys >= 5
+                    RETURN f.flight_number as flight_number,
+                           total_journeys,
+                           high_delay_count,
+                           (toFloat(high_delay_count) / total_journeys * 100) as high_delay_percentage
+                    ORDER BY high_delay_percentage DESC
+                    LIMIT 20
                 """
             },
             "passenger_satisfaction": {
@@ -113,6 +140,15 @@ class BaselineRetriever:
                            journey_count
                     ORDER BY avg_satisfaction ASC, avg_delay DESC
                     LIMIT 15
+                """,
+                "class_performance": """
+                    MATCH (j:Journey)
+                    WHERE j.passenger_class IS NOT NULL
+                    RETURN j.passenger_class as passenger_class,
+                           COUNT(j) as journey_count,
+                           AVG(j.food_satisfaction_score) as avg_satisfaction,
+                           AVG(j.arrival_delay_minutes) as avg_delay
+                    ORDER BY avg_satisfaction DESC
                 """
             },
             "route_analysis": {
@@ -123,6 +159,17 @@ class BaselineRetriever:
                            arr.station_code as arrival,
                            COUNT(DISTINCT j) as journey_count,
                            AVG(j.actual_flown_miles) as avg_miles
+                    ORDER BY journey_count DESC
+                    LIMIT 20
+                """,
+                "popular_flights": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
+                          (f)-[:ARRIVES_AT]->(arr:Airport)
+                    RETURN f.flight_number as flight_number,
+                           dep.station_code as departure,
+                           arr.station_code as arrival,
+                           COUNT(j) as journey_count,
+                           AVG(j.food_satisfaction_score) as avg_satisfaction
                     ORDER BY journey_count DESC
                     LIMIT 20
                 """,
@@ -168,6 +215,17 @@ class BaselineRetriever:
                            AVG(j.food_satisfaction_score) as avg_satisfaction,
                            AVG(j.arrival_delay_minutes) as avg_delay
                     ORDER BY journey_count DESC
+                """,
+                "baggage_related_journeys": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WHERE j.food_satisfaction_score IS NOT NULL
+                    RETURN j.feedback_ID as feedback_id,
+                           j.passenger_class as passenger_class,
+                           j.food_satisfaction_score as satisfaction,
+                           f.flight_number as flight_number,
+                           j.actual_flown_miles as miles
+                    ORDER BY j.feedback_ID DESC
+                    LIMIT 20
                 """
             },
             "performance_metrics": {
@@ -198,14 +256,15 @@ class BaselineRetriever:
                 "best_routes": """
                     MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
                           (f)-[:ARRIVES_AT]->(arr:Airport)
-                    WHERE j.food_satisfaction_score >= 4 
-                      AND j.arrival_delay_minutes <= 15
-                    WITH dep, arr, COUNT(j) as good_journeys, COUNT(DISTINCT j) as total
-                    WHERE good_journeys >= 10
+                    WITH dep, arr, 
+                         COUNT(j) as total_journeys,
+                         SUM(CASE WHEN j.food_satisfaction_score >= 4 AND j.arrival_delay_minutes <= 15 THEN 1 ELSE 0 END) as good_journeys
+                    WHERE total_journeys >= 10 AND good_journeys >= 10
                     RETURN dep.station_code as departure,
                            arr.station_code as arrival,
                            good_journeys,
-                           (toFloat(good_journeys) / total * 100) as satisfaction_rate
+                           total_journeys,
+                           (toFloat(good_journeys) / total_journeys * 100) as satisfaction_rate
                     ORDER BY satisfaction_rate DESC
                     LIMIT 10
                 """
@@ -219,6 +278,83 @@ class BaselineRetriever:
                            f.fleet_type_description as fleet_type,
                            dep.station_code as departure,
                            arr.station_code as arrival
+                """,
+                "flight_info_with_passengers": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport)
+                    WHERE f.flight_number = $flight_number
+                    RETURN DISTINCT f.flight_number as flight_number,
+                           dep.station_code as departure_airport,
+                           COUNT(DISTINCT j.feedback_ID) as passenger_count,
+                           AVG(j.food_satisfaction_score) as avg_satisfaction
+                    LIMIT 1
+                """
+            },
+            "flight_performance": {
+                "flight_performance_by_number": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
+                          (f)-[:ARRIVES_AT]->(arr:Airport)
+                    WHERE f.flight_number = $flight_number
+                    WITH f, dep, arr,
+                         AVG(j.arrival_delay_minutes) as avg_delay,
+                         COUNT(j) as journey_count,
+                         SUM(CASE WHEN j.arrival_delay_minutes <= 15 THEN 1 ELSE 0 END) as on_time_count
+                    RETURN f.flight_number as flight_number,
+                           dep.station_code as departure,
+                           arr.station_code as arrival,
+                           avg_delay,
+                           journey_count,
+                           on_time_count
+                    LIMIT 1
+                """,
+                "flight_performance_recent": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
+                          (f)-[:ARRIVES_AT]->(arr:Airport)
+                    WHERE f.flight_number = $flight_number
+                    RETURN f.flight_number as flight_number,
+                           dep.station_code as departure,
+                           arr.station_code as arrival,
+                           j.arrival_delay_minutes as delay_minutes,
+                           j.food_satisfaction_score as satisfaction,
+                           j.feedback_ID as feedback_id
+                    ORDER BY j.feedback_ID DESC
+                    LIMIT 10
+                """,
+                "on_time_flights": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WHERE j.arrival_delay_minutes <= 15
+                    WITH f, 
+                         COUNT(j) as on_time_count,
+                         COUNT(*) as total_count,
+                         AVG(j.arrival_delay_minutes) as avg_delay
+                    WHERE total_count >= 5
+                    RETURN f.flight_number as flight_number,
+                           on_time_count,
+                           total_count,
+                           (toFloat(on_time_count) / total_count * 100) as on_time_percentage,
+                           avg_delay
+                    ORDER BY on_time_percentage DESC
+                    LIMIT 20
+                """
+            },
+            "loyalty_analysis": {
+                "loyalty_passenger_analysis": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)
+                    WHERE j.passenger_class IS NOT NULL
+                    RETURN j.passenger_class as passenger_class,
+                           COUNT(j) as journey_count,
+                           AVG(j.food_satisfaction_score) as avg_satisfaction,
+                           AVG(j.arrival_delay_minutes) as avg_delay,
+                           AVG(j.actual_flown_miles) as avg_miles
+                    ORDER BY journey_count DESC
+                """,
+                "loyalty_by_class": """
+                    MATCH (j:Journey)
+                    WHERE j.passenger_class IS NOT NULL
+                    RETURN j.passenger_class as class,
+                           COUNT(DISTINCT j.feedback_ID) as unique_passengers,
+                           COUNT(j) as total_journeys,
+                           AVG(j.food_satisfaction_score) as avg_satisfaction
+                    ORDER BY total_journeys DESC
                 """
             }
         }
@@ -326,6 +462,31 @@ class BaselineRetriever:
         
         parameters = {}
         
+        # Templates that don't require parameters (can run without entities)
+        # Check this FIRST before processing entities to avoid false matches
+        no_param_templates = [
+            "overall_statistics", 
+            "popular_routes", 
+            "satisfaction_by_class",
+            "delays_by_route",
+            "worst_delayed_flights",
+            "loyalty_passenger_journeys",
+            "multi_leg_journeys",
+            "loyalty_passenger_analysis",
+            "loyalty_by_class",
+            "popular_flights",
+            "cancelled_flight_patterns",
+            "flight_reliability",
+            "class_performance",
+            "baggage_related_journeys",
+            "on_time_flights",
+            "best_routes"
+        ]
+        
+        # If no specific parameters needed, return empty dict early
+        if template_name in no_param_templates:
+            return {}
+        
         # Extract airport codes (consistent format: list of dicts with "value" and "type" keys)
         airports = entities.get("AIRPORT", [])
         if not isinstance(airports, list):
@@ -342,7 +503,8 @@ class BaselineRetriever:
         
         # Map airport names to codes (simplified - would need a mapping)
         # Prioritize by_route when both airports are present
-        if "route" in template_name:
+        # Note: Check for exact template names, not substring matches
+        if template_name == "by_route" or (template_name.startswith("by_") and "route" in template_name):
             if len(airport_codes) >= 2:
                 parameters["departure_code"] = airport_codes[0]
                 parameters["arrival_code"] = airport_codes[1]
@@ -465,20 +627,6 @@ class BaselineRetriever:
             if route_value != "mentioned":  # If specific route name provided
                 parameters["route_name"] = str(route_value)
         
-        # Templates that don't require parameters (can run without entities)
-        no_param_templates = [
-            "overall_statistics", 
-            "popular_routes", 
-            "satisfaction_by_class",
-            "delays_by_route",
-            "worst_delayed_flights",
-            "loyalty_passenger_journeys",
-            "multi_leg_journeys"
-        ]
-        
-        # If no specific parameters needed, return empty dict
-        if not parameters and template_name in no_param_templates:
-            return {}
         
         # For queries that require parameters, return None if missing
         # This allows queries without required params to be skipped
