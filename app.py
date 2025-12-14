@@ -145,31 +145,80 @@ def main():
         
         st.divider()
         
-        # LLM Model Selection
-        st.subheader("🤖 LLM Model")
+        # LLM Provider Selection (Google, Groq, OpenRouter)
+        st.subheader("🤖 LLM Provider")
         if st.session_state.llm_manager:
+            # Filter models by provider (google, groq, openrouter)
             available_models = st.session_state.llm_manager.list_available_models()
-            if available_models:
-                selected_model = st.selectbox(
-                    "Choose LLM:",
-                    available_models
+            
+            # Group models by provider
+            google_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "google"]
+            groq_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "groq"]
+            openrouter_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "openrouter"]
+            
+            # Create provider options
+            provider_options = []
+            if google_models:
+                provider_options.append("Google")
+            if groq_models:
+                provider_options.append("Groq")
+            if openrouter_models:
+                provider_options.append("OpenRouter")
+            
+            if provider_options:
+                selected_provider = st.radio(
+                    "Choose LLM Provider:",
+                    provider_options,
+                    index=0 if provider_options else None
                 )
+                
+                # Get models for selected provider
+                if selected_provider == "Google":
+                    provider_models = google_models
+                elif selected_provider == "Groq":
+                    provider_models = groq_models
+                elif selected_provider == "OpenRouter":
+                    provider_models = openrouter_models
+                else:
+                    provider_models = []
+                
+                # Select specific model from provider (if multiple available)
+                if len(provider_models) > 1:
+                    selected_model = st.selectbox(
+                        f"Choose {selected_provider} Model:",
+                        provider_models,
+                        format_func=lambda x: LLM_MODELS.get(x, {}).get("name", x) if "name" in LLM_MODELS.get(x, {}) else x
+                    )
+                elif len(provider_models) == 1:
+                    selected_model = provider_models[0]
+                    st.info(f"Using: {provider_models[0]}")
+                else:
+                    selected_model = None
+                    st.warning(f"No {selected_provider} models available. Check API keys.")
             else:
-                st.warning("No LLM models available. Check API keys.")
+                st.warning("No LLM providers available. Check API keys for Google, Groq, or OpenRouter.")
                 selected_model = None
         else:
             st.warning("Initialize connection first")
             selected_model = None
         
-        # Compare Models Option
-        compare_models = st.checkbox("Compare Multiple Models", value=False)
+        # Compare Models Option (across the three providers)
+        compare_models = st.checkbox("Compare All Three Providers", value=False)
         if compare_models and st.session_state.llm_manager:
             available_models = st.session_state.llm_manager.list_available_models()
-            selected_models = st.multiselect(
-                "Select models to compare:",
-                available_models,
-                default=available_models[:3] if len(available_models) >= 3 else available_models
-            )
+            # Group models by provider for comparison
+            comp_google_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "google"]
+            comp_groq_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "groq"]
+            comp_openrouter_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "openrouter"]
+            # Get one model from each provider
+            comparison_models = []
+            if comp_google_models:
+                comparison_models.append(comp_google_models[0])
+            if comp_groq_models:
+                comparison_models.append(comp_groq_models[0])
+            if comp_openrouter_models:
+                comparison_models.append(comp_openrouter_models[0])
+            selected_models = comparison_models
         else:
             selected_models = []
     
@@ -237,8 +286,38 @@ def main():
                     seen.add(key)
                     unique_results.append(r)
             
-            # Format context for LLM
-            context = json.dumps(unique_results[:30], indent=2)  # Limit context size
+            # Format context for LLM - reduce size to avoid token limits
+            # Limit to 10 records and truncate large fields to prevent context overflow
+            max_records = 10
+            max_field_length = 150  # Max characters per field
+            truncated_results = []
+            
+            for record in unique_results[:max_records]:
+                truncated_record = {}
+                for key, value in record.items():
+                    if isinstance(value, str):
+                        # Truncate long strings
+                        if len(value) > max_field_length:
+                            truncated_record[key] = value[:max_field_length] + "..."
+                        else:
+                            truncated_record[key] = value
+                    elif isinstance(value, (dict, list)):
+                        # Convert to string, truncate, then try to keep as structure if possible
+                        str_value = json.dumps(value)
+                        if len(str_value) > max_field_length:
+                            # For large nested structures, just keep a summary
+                            if isinstance(value, list):
+                                truncated_record[key] = f"[List with {len(value)} items]"
+                            else:
+                                truncated_record[key] = f"{{Object with {len(value)} keys}}"
+                        else:
+                            truncated_record[key] = value
+                    else:
+                        truncated_record[key] = value
+                truncated_results.append(truncated_record)
+            
+            # Use compact JSON to save tokens
+            context = json.dumps(truncated_results, separators=(',', ':'))  # No extra spaces
             
             # Step 3: LLM Generation
             if selected_model or compare_models:

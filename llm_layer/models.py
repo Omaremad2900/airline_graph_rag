@@ -26,10 +26,10 @@ class LLMModel:
             if not config.OPENAI_API_KEY:
                 raise ValueError("OpenAI API key not found")
             return ChatOpenAI(
-                model_name=self.model_name,
+                model=self.model_name,
                 temperature=self.model_config.get("temperature", 0.7),
                 max_tokens=self.model_config.get("max_tokens", 1000),
-                openai_api_key=config.OPENAI_API_KEY
+                api_key=config.OPENAI_API_KEY
             )
         
         elif self.provider == "anthropic":
@@ -45,8 +45,15 @@ class LLMModel:
         elif self.provider == "google":
             if not config.GOOGLE_API_KEY:
                 raise ValueError("Google API key not found")
+            # Handle model name - remove 'models/' prefix if present
+            model_name = self.model_name
+            if model_name.startswith("models/"):
+                model_name = model_name.replace("models/", "")
+            
+            # Initialize ChatGoogleGenerativeAI
+            # Note: gemini-pro is deprecated, use gemini-1.5-flash or gemini-1.5-pro
             return ChatGoogleGenerativeAI(
-                model=self.model_name,
+                model=model_name,
                 temperature=self.model_config.get("temperature", 0.7),
                 max_output_tokens=self.model_config.get("max_tokens", 1000),
                 google_api_key=config.GOOGLE_API_KEY
@@ -55,13 +62,21 @@ class LLMModel:
         elif self.provider == "openrouter":
             if not config.OPENROUTER_API_KEY:
                 raise ValueError("OpenRouter API key not found")
+            # Validate API key format (should start with sk-or-)
+            api_key = config.OPENROUTER_API_KEY.strip()
+            if not api_key.startswith("sk-or-"):
+                raise ValueError(
+                    f"OpenRouter API key should start with 'sk-or-'. "
+                    f"Your key starts with '{api_key[:7]}...'. "
+                    f"Please check your .env file and get a valid key from https://openrouter.ai/keys"
+                )
             # Use OpenAI-compatible interface for OpenRouter
             return ChatOpenAI(
-                model_name=self.model_name,
+                model=self.model_name,
                 temperature=self.model_config.get("temperature", 0.7),
                 max_tokens=self.model_config.get("max_tokens", 1000),
-                openai_api_key=config.OPENROUTER_API_KEY,
-                openai_api_base="https://openrouter.ai/api/v1"
+                api_key=api_key,
+                base_url="https://openrouter.ai/api/v1"
             )
         
         elif self.provider == "huggingface":
@@ -80,7 +95,7 @@ class LLMModel:
             if not config.GROQ_API_KEY:
                 raise ValueError("Groq API key not found")
             return ChatGroq(
-                model=self.model_name,
+                model=self.model_name,  # ChatGroq uses 'model' parameter
                 temperature=self.model_config.get("temperature", 0.7),
                 max_tokens=self.model_config.get("max_tokens", 1000),
                 groq_api_key=config.GROQ_API_KEY

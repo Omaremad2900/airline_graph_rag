@@ -48,7 +48,7 @@ LLM_MODELS = {
         "max_tokens": 1000,
         "temperature": 0.7
     },
-    "gemini-pro": {
+    "gemini-2.5-flash": {
         "provider": "google",
         "max_tokens": 1000,
         "temperature": 0.7
@@ -58,17 +58,12 @@ LLM_MODELS = {
         "max_tokens": 1000,
         "temperature": 0.7
     },
-    "meta-llama/llama-3-8b-instruct": {
+    "meta-llama/llama-3.1-8b-instruct": {
         "provider": "openrouter",
         "max_tokens": 1000,
         "temperature": 0.7
     },
-    "llama3-8b-8192": {
-        "provider": "groq",
-        "max_tokens": 1000,
-        "temperature": 0.7
-    },
-    "gemma2-9b-it": {
+    "llama-3.3-70b-versatile": {
         "provider": "groq",
         "max_tokens": 1000,
         "temperature": 0.7
