@@ -251,11 +251,13 @@ class EmbeddingRetriever:
             
         Returns:
             List of similar journey records with graph data from Neo4j
+            
+        Raises:
+            RuntimeError: If FAISS index is missing or empty
         """
         # Check if index exists
         if self.index is None or self.index.ntotal == 0:
-            print(f"No FAISS index found. Please run initialize_embeddings.py first.")
-            return []
+            raise RuntimeError("FAISS index missing. Run initialize_embeddings.py first.")
         
         # Generate query embedding
         query_embedding = self.embedding_model.embed_text(query)
@@ -302,16 +304,15 @@ class EmbeddingRetriever:
         if not feedback_ids:
             return []
         
-        # Build query with feedback IDs
-        feedback_ids_str = ', '.join([f'"{fid}"' for fid in feedback_ids])
-        query = f"""
+        # Use parameterized query to avoid type mismatches and injection issues
+        query = """
         MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
               (f)-[:ARRIVES_AT]->(arr:Airport)
-        WHERE j.feedback_ID IN [{feedback_ids_str}]
+        WHERE j.feedback_ID IN $feedback_ids
         RETURN j, f, dep, arr, j.feedback_ID as feedback_id
         """
         
-        results = self.connector.execute_query(query)
+        results = self.connector.execute_query(query, {"feedback_ids": feedback_ids})
         
         if not results:
             return []

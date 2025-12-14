@@ -1,6 +1,7 @@
 """Baseline retrieval using Cypher queries."""
 from utils.neo4j_connector import Neo4jConnector
 import logging
+import re
 
 logger = logging.getLogger(__name__)
 import config
@@ -9,9 +10,86 @@ import config
 class BaselineRetriever:
     """Retrieves information from Neo4j using Cypher queries."""
     
+    # Class-level constants
+    NO_PARAM_TEMPLATES = {
+        "overall_statistics", 
+        "popular_routes", 
+        "satisfaction_by_class",
+        "delays_by_route",
+        "worst_delayed_flights",
+        "loyalty_passenger_journeys",
+        "multi_leg_journeys",
+        "loyalty_passenger_analysis",
+        "loyalty_by_class",
+        "popular_flights",
+        "cancelled_flight_patterns",
+        "flight_reliability",
+        "class_performance",
+        "baggage_related_journeys",
+        "on_time_flights",
+        "best_routes",
+        "general_flight_performance"
+    }
+    
+    REQUIRED_PARAMS = {
+        "by_route": {"departure_code", "arrival_code"},
+        "by_departure": {"departure_code"},
+        "by_arrival": {"arrival_code"},
+        "flights_with_delays": {"min_delay"},
+        "low_rated_journeys": {"min_score"},
+        "journey_details": {"feedback_id"},
+        "flight_info": {"flight_number"},
+        "flight_info_with_passengers": {"flight_number"},
+        "flight_performance_by_number": {"flight_number"},
+        "flight_performance_recent": {"flight_number"},
+    }
+    
+    # Default threshold values
+    DEFAULT_MIN_DELAY = 15.0
+    DEFAULT_MIN_SCORE = 3.0
+    
     def __init__(self, connector: Neo4jConnector):
         self.connector = connector
         self.query_templates = self._initialize_query_templates()
+        self._airport_cache = None  # Cache for valid airport codes
+    
+    def _get_valid_airports(self) -> set:
+        """Get set of valid airport codes from the database."""
+        if self._airport_cache is not None:
+            return self._airport_cache
+        
+        try:
+            query = "MATCH (a:Airport) RETURN DISTINCT a.station_code as code"
+            result = self.connector.execute_query(query, {})
+            codes = {record.get("code") for record in result if record.get("code")}
+            self._airport_cache = codes
+            logger.info(f"Loaded {len(codes)} valid airport codes from database")
+            return codes
+        except Exception as e:
+            logger.warning(f"Could not load airport codes from database: {e}")
+            return set()
+    
+    def _validate_airport_codes(self, airport_codes: list) -> tuple:
+        """
+        Validate airport codes against the database.
+        
+        Returns:
+            Tuple of (valid_codes, invalid_codes)
+        """
+        if not airport_codes:
+            return [], []
+        
+        valid_airports = self._get_valid_airports()
+        valid = []
+        invalid = []
+        
+        for code in airport_codes:
+            if code in valid_airports:
+                valid.append(code)
+            else:
+                invalid.append(code)
+        
+        return valid, invalid
     
     def _initialize_query_templates(self) -> dict:
         """Initialize Cypher query templates for different intents."""
@@ -29,18 +107,22 @@ class BaselineRetriever:
                     LIMIT 20
                 """,
                 "by_departure": """
-                    MATCH (f:Flight)-[:DEPARTS_FROM]->(dep:Airport)
+                    MATCH (f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
+                          (f)-[:ARRIVES_AT]->(arr:Airport)
                     WHERE dep.station_code = $departure_code
                     RETURN f.flight_number as flight_number,
                            f.fleet_type_description as fleet_type,
-                           dep.station_code as departure_airport
+                           dep.station_code as departure_airport,
+                           arr.station_code as arrival_airport
                     LIMIT 20
                 """,
                 "by_arrival": """
-                    MATCH (f:Flight)-[:ARRIVES_AT]->(arr:Airport)
+                    MATCH (f:Flight)-[:ARRIVES_AT]->(arr:Airport),
+                          (f)-[:DEPARTS_FROM]->(dep:Airport)
                     WHERE arr.station_code = $arrival_code
                     RETURN f.flight_number as flight_number,
                            f.fleet_type_description as fleet_type,
+                           dep.station_code as departure_airport,
                            arr.station_code as arrival_airport
                     LIMIT 20
                 """
@@ -236,7 +318,7 @@ class BaselineRetriever:
                            AVG(j.actual_flown_miles) as avg_miles,
                            COUNT(j) as total_journeys
                 """,
-                "flight_performance": """
+                "general_flight_performance": """
                     MATCH (j:Journey)-[:ON]->(f:Flight)
                     WITH f, 
                          AVG(j.food_satisfaction_score) as avg_satisfaction,
@@ -250,6 +332,22 @@ class BaselineRetriever:
                            journey_count
                     ORDER BY avg_satisfaction DESC, avg_delay ASC
                     LIMIT 20
+                """,
+                "flight_performance_by_number": """
+                    MATCH (j:Journey)-[:ON]->(f:Flight)-[:DEPARTS_FROM]->(dep:Airport),
+                          (f)-[:ARRIVES_AT]->(arr:Airport)
+                    WHERE f.flight_number = $flight_number
+                    WITH f, dep, arr,
+                         AVG(j.arrival_delay_minutes) as avg_delay,
+                         COUNT(j) as journey_count,
+                         SUM(CASE WHEN j.arrival_delay_minutes <= 15 THEN 1 ELSE 0 END) as on_time_count
+                    RETURN f.flight_number as flight_number,
+                           dep.station_code as departure,
+                           arr.station_code as arrival,
+                           avg_delay,
+                           journey_count,
+                           on_time_count
+                    LIMIT 1
                 """
             },
             "recommendation": {
@@ -394,7 +492,16 @@ class BaselineRetriever:
             airports = entities.get("AIRPORT", [])
             if not isinstance(airports, list):
                 airports = []
-            airport_codes = [a["value"] for a in airports if isinstance(a, dict) and a.get("type") == "AIRPORT_CODE"]
+            airport_codes = []
+            for a in airports:
+                if not isinstance(a, dict) or "value" not in a:
+                    continue
+                t = a.get("type")
+                # Normalize: keep only A-Z characters, then upper
+                val_raw = str(a["value"])
+                val_clean = re.sub(r'[^A-Za-z]', '', val_raw).upper()
+                if t in {"AIRPORT_CODE", "AIRPORT"} and len(val_clean) == 3:
+                    airport_codes.append(val_clean)
             if len(airport_codes) >= 2:
                 # Try by_route first
                 template_order = ["by_route", "by_departure", "by_arrival"]
@@ -406,23 +513,62 @@ class BaselineRetriever:
         else:
             template_order = list(templates.keys())
         
+        # Validate airport codes for flight_search queries (cache validation results)
+        invalid_airport_codes = set()
+        if intent == "flight_search" and entities.get("AIRPORT"):
+            airports = entities.get("AIRPORT", [])
+            if isinstance(airports, list):
+                airport_codes = []
+                for a in airports:
+                    if isinstance(a, dict) and "value" in a:
+                        t = a.get("type")
+                        val_raw = str(a["value"])
+                        val_clean = re.sub(r'[^A-Za-z]', '', val_raw).upper()
+                        if t in {"AIRPORT_CODE", "AIRPORT"} and len(val_clean) == 3:
+                            airport_codes.append(val_clean)
+                
+                if airport_codes:
+                    valid_codes, invalid_codes = self._validate_airport_codes(airport_codes)
+                    if invalid_codes:
+                        invalid_airport_codes = set(invalid_codes)
+                        logger.warning(f"Invalid airport codes: {invalid_codes}")
+        
         # Try different query templates based on available entities
         for template_name in template_order:
             if template_name not in templates:
                 continue
             query = templates[template_name]
             try:
-                parameters = self._build_parameters(entities, template_name)
+                parameters = self._build_parameters(entities, template_name, intent)
                 if parameters is not None:
                     result = self.connector.execute_query(query, parameters)
-                    # Track executed query even if no results
-                    executed_queries.append({
+                    
+                    # Check if this specific query uses invalid airport codes
+                    query_warnings = []
+                    if invalid_airport_codes and intent == "flight_search":
+                        # Check which airport codes are used in this query's parameters
+                        codes_used = []
+                        if "departure_code" in parameters:
+                            codes_used.append(parameters["departure_code"])
+                        if "arrival_code" in parameters:
+                            codes_used.append(parameters["arrival_code"])
+                        
+                        # Only warn if this query uses invalid codes
+                        invalid_used = [code for code in codes_used if code in invalid_airport_codes]
+                        if invalid_used:
+                            query_warnings.append(f"Airport code(s) not found in database: {', '.join(invalid_used)}")
+                    
+                    # Track executed query even if no results, include warnings
+                    query_info = {
                         "template": template_name,
                         "intent": intent,
                         "query": query.strip(),
                         "parameters": parameters,
                         "result_count": len(result) if result else 0
-                    })
+                    }
+                    if query_warnings:
+                        query_info["warnings"] = query_warnings
+                    executed_queries.append(query_info)
                     if result:
                         results.extend(result)
                 else:
@@ -431,18 +577,28 @@ class BaselineRetriever:
                 logger.error(f"Error executing query {template_name}: {e}", exc_info=True)
                 continue
         
-        # Remove duplicates based on common keys
+        # Remove duplicates using stable keys
         seen = set()
         unique_results = []
         for record in results:
-            key = str(sorted(record.items()))
+            # Use stable key: flight_number > feedback_id > full dict stringify
+            if isinstance(record, dict):
+                if "flight_number" in record:
+                    key = f"flight_{record['flight_number']}"
+                elif "feedback_id" in record:
+                    key = f"journey_{record['feedback_id']}"
+                else:
+                    key = str(sorted(record.items()))
+            else:
+                key = str(record)
+            
             if key not in seen:
                 seen.add(key)
                 unique_results.append(record)
         
         return unique_results[:50], executed_queries  # Limit total results
     
-    def _build_parameters(self, entities: dict, template_name: str) -> dict:
+    def _build_parameters(self, entities: dict, template_name: str, intent: str = None) -> dict:
         """
         Build query parameters from extracted entities.
         
@@ -450,6 +606,7 @@ class BaselineRetriever:
             entities: Dictionary of extracted entities from preprocessing layer
                      Format: {"ENTITY_TYPE": [{"value": ..., "type": "ENTITY_TYPE"}, ...], ...}
             template_name: Name of the query template being used
+            intent: Intent classification (optional, used for better flight number fallback)
             
         Returns:
             Dictionary of parameters for Cypher query, or None if required parameters are missing
@@ -462,32 +619,32 @@ class BaselineRetriever:
         
         parameters = {}
         
-        # Templates that don't require parameters (can run without entities)
-        # Check this FIRST before processing entities to avoid false matches
-        no_param_templates = [
-            "overall_statistics", 
-            "popular_routes", 
-            "satisfaction_by_class",
-            "delays_by_route",
-            "worst_delayed_flights",
-            "loyalty_passenger_journeys",
-            "multi_leg_journeys",
-            "loyalty_passenger_analysis",
-            "loyalty_by_class",
-            "popular_flights",
-            "cancelled_flight_patterns",
-            "flight_reliability",
-            "class_performance",
-            "baggage_related_journeys",
-            "on_time_flights",
-            "best_routes"
-        ]
-        
         # If no specific parameters needed, return empty dict early
-        if template_name in no_param_templates:
+        if template_name in self.NO_PARAM_TEMPLATES:
             return {}
         
+        # Extract numbers
+        numbers = entities.get("NUMBER", [])
+        if not isinstance(numbers, list):
+            numbers = []
+        
+        number_value = None
+        if numbers and isinstance(numbers[0], dict) and "value" in numbers[0]:
+            try:
+                number_value = float(numbers[0]["value"])
+            except (ValueError, TypeError):
+                number_value = None
+        
+        # Delay threshold templates
+        if template_name in {"flights_with_delays"}:
+            parameters["min_delay"] = number_value if number_value is not None else self.DEFAULT_MIN_DELAY
+        
+        # Satisfaction threshold templates
+        if template_name in {"low_rated_journeys"}:
+            parameters["min_score"] = number_value if number_value is not None else self.DEFAULT_MIN_SCORE
+        
         # Extract airport codes (consistent format: list of dicts with "value" and "type" keys)
+        # Normalize with regex: strip non-letters, upper, then length check
         airports = entities.get("AIRPORT", [])
         if not isinstance(airports, list):
             airports = []
@@ -495,11 +652,16 @@ class BaselineRetriever:
         airport_codes = []
         airport_names = []
         for a in airports:
-            if isinstance(a, dict) and "value" in a:
-                if a.get("type") == "AIRPORT_CODE":
-                    airport_codes.append(a["value"])
-                elif a.get("type") == "AIRPORT_NAME":
-                    airport_names.append(a["value"])
+            if not isinstance(a, dict) or "value" not in a:
+                continue
+            t = a.get("type")
+            # Normalize: keep only A-Z characters, then upper
+            val_raw = str(a["value"])
+            val_clean = re.sub(r'[^A-Za-z]', '', val_raw).upper()
+            if t in {"AIRPORT_CODE", "AIRPORT"} and len(val_clean) == 3:
+                airport_codes.append(val_clean)
+            elif t == "AIRPORT_NAME":
+                airport_names.append(a["value"])
         
         # Map airport names to codes (simplified - would need a mapping)
         # Prioritize by_route when both airports are present
@@ -540,35 +702,35 @@ class BaselineRetriever:
                 return None
         
         # Extract flight numbers (consistent format: list of dicts with "value" and "type" keys)
-        flights = entities.get("FLIGHT", [])
-        if not isinstance(flights, list):
-            flights = []
+        # Fallback to NUMBER if FLIGHT is missing, but only if safe
+        if template_name in {"flight_info", "flight_info_with_passengers",
+                             "flight_performance_by_number", "flight_performance_recent"}:
+            if "flight_number" not in parameters:
+                flights = entities.get("FLIGHT", [])
+                if isinstance(flights, list) and flights and isinstance(flights[0], dict):
+                    parameters["flight_number"] = str(flights[0].get("value"))
+            
+            # Fallback to NUMBER only if:
+            # 1. FLIGHT entity exists (prefer it) OR intent is flight-related
+            # 2. Number is >= 1 and int-like
+            # 3. Avoid small threshold values (3, 4, 15) that might be satisfaction/delay thresholds
+            if "flight_number" not in parameters:
+                has_flight_entity = bool(entities.get("FLIGHT"))
+                is_flight_intent = intent in {"general_question", "flight_performance", "performance_metrics"}
+                
+                if has_flight_entity or is_flight_intent:
+                    numbers = entities.get("NUMBER", [])
+                    if isinstance(numbers, list) and numbers and isinstance(numbers[0], dict):
+                        v = numbers[0].get("value")
+                        if v is not None:
+                            try:
+                                num_val = float(v)
+                                # Only use if >= 1, int-like, and not a common threshold value
+                                if num_val >= 1 and num_val == int(num_val) and num_val not in {3, 4, 15}:
+                                    parameters["flight_number"] = str(int(num_val))
+                            except (ValueError, TypeError):
+                                pass
         
-        if flights and isinstance(flights[0], dict) and "value" in flights[0]:
-            parameters["flight_number"] = flights[0]["value"]
-        
-        # Extract numbers for thresholds (consistent format: list of dicts with "value" and "type" keys)
-        numbers = entities.get("NUMBER", [])
-        if not isinstance(numbers, list):
-            numbers = []
-        
-        if numbers and isinstance(numbers[0], dict) and "value" in numbers[0]:
-            try:
-                if "delay" in template_name:
-                    parameters["min_delay"] = float(numbers[0]["value"])
-                elif "satisfaction" in template_name or "score" in template_name:
-                    parameters["min_score"] = float(numbers[0]["value"])
-            except (ValueError, TypeError):
-                # Invalid number value, skip
-                pass
-        else:
-            # Provide default thresholds if no number specified
-            if "delay" in template_name and "flights_with_delays" in template_name:
-                # Default: delays over 15 minutes
-                parameters["min_delay"] = 15.0
-            elif "satisfaction" in template_name and "low_rated_journeys" in template_name:
-                # Default: satisfaction below 3
-                parameters["min_score"] = 3.0
         
         # Extract Journey IDs (for journey_details query)
         # Consistent format: list of dicts with "value" and "type" keys
@@ -628,7 +790,10 @@ class BaselineRetriever:
                 parameters["route_name"] = str(route_value)
         
         
-        # For queries that require parameters, return None if missing
-        # This allows queries without required params to be skipped
-        return parameters if parameters else None
+        # Validate required parameters
+        required = self.REQUIRED_PARAMS.get(template_name, set())
+        if required and not required.issubset(parameters.keys()):
+            return None
+        
+        return parameters
 

@@ -1,0 +1,27 @@
+Find flights from JFK to LAX
+Show me flights departing from JFK
+What flights arrive at LAX?
+Which flights have delays over 30 minutes?
+Show me delays by route
+What are the worst delayed flights?
+Find flights with high cancellation risk
+Show me flight reliability statistics
+Show me journeys with satisfaction below 3
+What is satisfaction by passenger class?
+Find poor performing flights
+Compare class performance
+What are the most popular routes?
+Show me popular flights
+What routes have the best performance?
+Find multi-leg journeys
+Tell me about journey J12345
+Show me loyalty passenger journeys
+Find baggage related journeys
+What are the overall statistics?
+Show me general flight performance
+What is the performance of flight 123?
+Recommend the best routes
+What is flight 456?
+Show me performance for flight 789
+What are the on-time flights?
+

@@ -113,6 +113,11 @@ def main():
                 list(EMBEDDING_MODELS.keys()),
                 format_func=lambda x: EMBEDDING_MODELS[x]["name"]
             )
+            
+            # Checkbox for comparing embedding models (separate from hybrid)
+            compare_embedding_models = st.checkbox("Compare Embedding Models", value=False)
+        else:
+            compare_embedding_models = False
         
         st.divider()
         
@@ -231,12 +236,16 @@ def main():
             
             if retrieval_method in ["Embeddings Only", "Both (Hybrid)"]:
                 if embedding_model_name:
-                    embedding_retriever = st.session_state.embedding_retrievers[embedding_model_name]
-                    embedding_results = embedding_retriever.retrieve_by_similarity(user_query, top_k=10)
-                    embedding_results_by_model[embedding_model_name] = embedding_results
+                    try:
+                        embedding_retriever = st.session_state.embedding_retrievers[embedding_model_name]
+                        embedding_results = embedding_retriever.retrieve_by_similarity(user_query, top_k=10)
+                        embedding_results_by_model[embedding_model_name] = embedding_results
+                    except Exception as e:
+                        st.warning(f"Embedding retrieval failed: {e}")
+                        embedding_results = []
                 
-                # If comparing models, get results from all models
-                if retrieval_method == "Both (Hybrid)":
+                # If comparing embedding models, get results from all models
+                if compare_embedding_models:
                     for model_name in EMBEDDING_MODELS.keys():
                         if model_name != embedding_model_name:
                             try:
@@ -248,14 +257,75 @@ def main():
             
             # Combine results
             all_results = baseline_results + embedding_results
-            # Remove duplicates
+            
+            # Add source metadata to results
+            for r in baseline_results:
+                r["source"] = "baseline"
+            for r in embedding_results:
+                r["source"] = "embeddings"
+            
+            # Remove duplicates using stable keys
             seen = set()
             unique_results = []
             for r in all_results:
-                key = str(sorted(r.items()))
+                # Use stable key: flight_number > feedback_id > full dict stringify
+                if isinstance(r, dict):
+                    if "flight_number" in r:
+                        key = f"flight_{r['flight_number']}"
+                    elif "feedback_id" in r or "feedback_ID" in r:
+                        fid = r.get("feedback_id") or r.get("feedback_ID")
+                        key = f"journey_{fid}"
+                    else:
+                        key = str(sorted(r.items()))
+                else:
+                    key = str(r)
+                
                 if key not in seen:
                     seen.add(key)
                     unique_results.append(r)
+            
+            # Score and sort hybrid results (embeddings first by similarity, then baseline)
+            def hybrid_score(r):
+                """Score for hybrid ranking: embeddings by similarity, baseline gets 0.5"""
+                if "similarity_score" in r:
+                    return float(r["similarity_score"])
+                return 0.5
+            
+            unique_results.sort(key=hybrid_score, reverse=True)
+            
+            # Normalize record keys before building context
+            def normalize_record(r):
+                """Normalize record keys for consistent schema"""
+                out = dict(r)
+                
+                # Normalize departure/arrival airport codes
+                if "departure_airport" in out and "departure" not in out:
+                    out["departure"] = out["departure_airport"]
+                if "arrival_airport" in out and "arrival" not in out:
+                    out["arrival"] = out["arrival_airport"]
+                
+                # Normalize flight number
+                if "flight_flight_number" in out and "flight_number" not in out:
+                    out["flight_number"] = out["flight_flight_number"]
+                elif "flight_number" not in out:
+                    # Try to extract from flight_ prefixed keys
+                    for k, v in out.items():
+                        if k.startswith("flight_") and "number" in k.lower():
+                            out["flight_number"] = v
+                            break
+                
+                # Normalize feedback_id
+                if "feedback_ID" in out and "feedback_id" not in out:
+                    out["feedback_id"] = out["feedback_ID"]
+                
+                # Ensure source is set
+                if "source" not in out:
+                    out["source"] = "unknown"
+                
+                return out
+            
+            # Normalize all records
+            normalized_results = [normalize_record(r) for r in unique_results]
             
             # Format context for LLM - reduce size to avoid token limits
             # Limit to 10 records and truncate large fields to prevent context overflow
@@ -263,28 +333,41 @@ def main():
             max_field_length = 150  # Max characters per field
             truncated_results = []
             
-            for record in unique_results[:max_records]:
+            # Priority fields to keep
+            priority_fields = ["flight_number", "departure", "arrival", "avg_delay", "max_delay", 
+                             "journey_count", "avg_satisfaction", "similarity_score", "source",
+                             "feedback_id", "food_satisfaction_score", "arrival_delay_minutes"]
+            
+            for record in normalized_results[:max_records]:
                 truncated_record = {}
-                for key, value in record.items():
-                    if isinstance(value, str):
-                        # Truncate long strings
-                        if len(value) > max_field_length:
+                # Add priority fields first
+                for key in priority_fields:
+                    if key in record:
+                        value = record[key]
+                        if isinstance(value, str) and len(value) > max_field_length:
                             truncated_record[key] = value[:max_field_length] + "..."
                         else:
                             truncated_record[key] = value
-                    elif isinstance(value, (dict, list)):
-                        # Convert to string, truncate, then try to keep as structure if possible
-                        str_value = json.dumps(value)
-                        if len(str_value) > max_field_length:
-                            # For large nested structures, just keep a summary
-                            if isinstance(value, list):
-                                truncated_record[key] = f"[List with {len(value)} items]"
+                
+                # Add other fields (truncated)
+                for key, value in record.items():
+                    if key not in truncated_record:
+                        if isinstance(value, str):
+                            if len(value) > max_field_length:
+                                truncated_record[key] = value[:max_field_length] + "..."
                             else:
-                                truncated_record[key] = f"{{Object with {len(value)} keys}}"
+                                truncated_record[key] = value
+                        elif isinstance(value, (dict, list)):
+                            str_value = json.dumps(value)
+                            if len(str_value) > max_field_length:
+                                if isinstance(value, list):
+                                    truncated_record[key] = f"[List with {len(value)} items]"
+                                else:
+                                    truncated_record[key] = f"{{Object with {len(value)} keys}}"
+                            else:
+                                truncated_record[key] = value
                         else:
                             truncated_record[key] = value
-                    else:
-                        truncated_record[key] = value
                 truncated_results.append(truncated_record)
             
             # Use compact JSON to save tokens
@@ -365,6 +448,10 @@ def main():
                         st.write(f"**Query {i}: {query_info['template']}** (Intent: {query_info['intent']})")
                         st.write(f"**Parameters:** {json.dumps(query_info['parameters'], indent=2)}")
                         st.write(f"**Results:** {query_info['result_count']} records")
+                        # Show warnings if airport codes are invalid
+                        if "warnings" in query_info and query_info["warnings"]:
+                            for warning in query_info["warnings"]:
+                                st.warning(f"⚠️ {warning}")
                         st.code(query_info['query'], language="cypher")
                         if i < len(cypher_queries):
                             st.divider()
