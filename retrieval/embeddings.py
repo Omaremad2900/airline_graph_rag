@@ -158,14 +158,32 @@ class EmbeddingRetriever:
         
         return ". ".join(text_parts)
     
-    def create_feature_embeddings(self):
+    def create_feature_embeddings(self, force_recreate: bool = False):
         """
         Create feature vector embeddings for Journey nodes and store them in FAISS.
         For Airline theme without textual features, construct text descriptions
         from numerical properties, then embed them.
+        
+        Args:
+            force_recreate: If True, recreate embeddings even if they already exist
         """
         print(f"Creating feature vector embeddings using model: {self.embedding_model.model_name}")
         print(f"Storing in FAISS index: {self.index_name}")
+        
+        # Check if embeddings already exist
+        if not force_recreate and self.index is not None and self.index.ntotal > 0:
+            # Count total journeys in database
+            count_query = """
+            MATCH (j:Journey)
+            WHERE j.feedback_ID IS NOT NULL
+            RETURN COUNT(j) as total
+            """
+            count_result = self.connector.execute_query(count_query)
+            db_count = count_result[0].get("total", 0) if count_result else 0
+            
+            if self.index.ntotal == db_count:
+                print(f"✅ Embeddings already exist ({self.index.ntotal} vectors). Use force_recreate=True to regenerate.")
+                return self.index.ntotal
         
         # Get journeys with related data (without TAKES relationship)
         query = """
@@ -173,17 +191,19 @@ class EmbeddingRetriever:
               (f)-[:ARRIVES_AT]->(arr:Airport)
         RETURN j, f, dep, arr
         """
+        print("Fetching journeys from Neo4j...")
         results = self.connector.execute_query(query)
         
         if not results:
             print("⚠️  No journeys found in database")
             return 0
         
-        # Prepare embeddings and ID mapping
-        embeddings_list = []
+        print(f"Found {len(results)} journeys. Processing embeddings in batches...")
+        
+        # Prepare text descriptions first (faster than embedding one-by-one)
+        text_descriptions = []
         feedback_ids = []
         
-        count = 0
         for record in results:
             # Convert node objects to dictionaries if needed
             j_data = record.get("j", {})
@@ -207,23 +227,29 @@ class EmbeddingRetriever:
             
             # Create text description from numerical properties
             feature_text = self._create_feature_text(j_data, None, f_data, dep_data, arr_data)
-            
-            # Embed the text description using the embedding model
-            embedding = self.embedding_model.embed_text(feature_text)
-            
-            embeddings_list.append(embedding)
+            text_descriptions.append(feature_text)
             feedback_ids.append(feedback_id)
-            count += 1
-            
-            if count % 100 == 0:
-                print(f"Processed {count} embeddings...")
         
-        if count == 0:
+        if len(text_descriptions) == 0:
             print("⚠️  No valid journeys found with feedback_ID")
             return 0
         
+        # Process embeddings in batches for better performance
+        batch_size = 32  # Process 32 at a time
+        embeddings_list = []
+        total = len(text_descriptions)
+        
+        print(f"Generating embeddings for {total} journeys (batch size: {batch_size})...")
+        for i in range(0, total, batch_size):
+            batch_texts = text_descriptions[i:i + batch_size]
+            batch_embeddings = self.embedding_model.embed_batch(batch_texts)
+            embeddings_list.extend(batch_embeddings)
+            
+            processed = min(i + batch_size, total)
+            print(f"  Processed {processed}/{total} embeddings ({processed*100//total}%)...")
+        
         # Create FAISS index
-        print(f"Creating FAISS index with {count} vectors of dimension {self.dimension}...")
+        print(f"Creating FAISS index with {len(embeddings_list)} vectors of dimension {self.dimension}...")
         embeddings_array = np.array(embeddings_list).astype('float32')
         
         # Create FAISS index (using L2 distance, we'll normalize for cosine similarity)
@@ -238,8 +264,8 @@ class EmbeddingRetriever:
         # Save index and mapping
         self._save_index()
         
-        print(f"✅ Created {count} feature vector embeddings in FAISS index '{self.index_name}'")
-        return count
+        print(f"✅ Created {len(embeddings_list)} feature vector embeddings in FAISS index '{self.index_name}'")
+        return len(embeddings_list)
     
     def retrieve_by_similarity(self, query: str, top_k: int = 10) -> list:
         """

@@ -9,13 +9,14 @@ from retrieval.embeddings import EmbeddingRetriever
 from config import EMBEDDING_MODELS
 
 
-def initialize_embeddings(model_name: str = None, all_models: bool = False):
+def initialize_embeddings(model_name: str = None, all_models: bool = False, force_recreate: bool = False):
     """
     Initialize embeddings for Journey nodes and store them in FAISS.
     
     Args:
         model_name: Embedding model to use (if None and all_models=False, uses first model)
         all_models: If True, initialize embeddings for all configured models
+        force_recreate: If True, recreate embeddings even if they already exist
     """
     # Initialize components
     connector = Neo4jConnector()
@@ -36,7 +37,7 @@ def initialize_embeddings(model_name: str = None, all_models: bool = False):
             embedding_model = EmbeddingGenerator(model_name)
             embedding_retriever = EmbeddingRetriever(connector, embedding_model)
             
-            count = embedding_retriever.create_feature_embeddings()
+            count = embedding_retriever.create_feature_embeddings(force_recreate=force_recreate)
             
             if count > 0:
                 print(f"✅ Model {model_name} completed: {count} embeddings stored in FAISS")
@@ -59,7 +60,7 @@ def initialize_embeddings(model_name: str = None, all_models: bool = False):
         embedding_retriever = EmbeddingRetriever(connector, embedding_model)
         
         print("Creating feature vector embeddings for Journey nodes...")
-        count = embedding_retriever.create_feature_embeddings()
+        count = embedding_retriever.create_feature_embeddings(force_recreate=force_recreate)
         
         if count > 0:
             print("✅ Embeddings initialized successfully")
@@ -89,6 +90,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Initialize embeddings for all configured models"
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force recreation of embeddings even if they already exist"
+    )
     
     args = parser.parse_args()
-    initialize_embeddings(args.model, args.all)
+    initialize_embeddings(args.model, args.all, args.force)
