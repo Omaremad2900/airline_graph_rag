@@ -3,10 +3,19 @@ import time
 from typing import Optional
 import config
 from langchain_openai import ChatOpenAI
-# from langchain_anthropic import ChatAnthropic
-# from langchain_google_genai import ChatGoogleGenerativeAI
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError:
+    ChatAnthropic = None
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:
+    ChatGoogleGenerativeAI = None
 from langchain_community.llms import HuggingFaceHub
-# from langchain_groq import ChatGroq
+try:
+    from langchain_groq import ChatGroq
+except ImportError:
+    ChatGroq = None
 
 
 class LLMModel:
@@ -33,6 +42,8 @@ class LLMModel:
             )
         
         elif self.provider == "anthropic":
+            if ChatAnthropic is None:
+                raise ValueError("langchain-anthropic package not installed. Install with: pip install langchain-anthropic")
             if not config.ANTHROPIC_API_KEY:
                 raise ValueError("Anthropic API key not found")
             return ChatAnthropic(
@@ -43,6 +54,8 @@ class LLMModel:
             )
         
         elif self.provider == "google":
+            if ChatGoogleGenerativeAI is None:
+                raise ValueError("langchain-google-genai package not installed. Install with: pip install langchain-google-genai")
             if not config.GOOGLE_API_KEY:
                 raise ValueError("Google API key not found")
             # Handle model name - remove 'models/' prefix if present
@@ -92,6 +105,8 @@ class LLMModel:
             )
         
         elif self.provider == "groq":
+            if ChatGroq is None:
+                raise ValueError("langchain-groq package not installed. Install with: pip install langchain-groq")
             if not config.GROQ_API_KEY:
                 raise ValueError("Groq API key not found")
             return ChatGroq(

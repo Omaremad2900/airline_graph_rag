@@ -124,10 +124,10 @@ def main():
         # LLM Provider Selection (Google, Groq, OpenRouter)
         st.subheader("🤖 LLM Provider")
         if st.session_state.llm_manager:
-            # Filter models by provider (google, groq, openrouter)
+            # Filter models by provider
             available_models = st.session_state.llm_manager.list_available_models()
             
-            # Group models by provider
+            # Group models by provider (excluding OpenAI and Anthropic)
             google_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "google"]
             groq_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "groq"]
             openrouter_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "openrouter"]
@@ -178,15 +178,15 @@ def main():
             st.warning("Initialize connection first")
             selected_model = None
         
-        # Compare Models Option (across the three providers)
-        compare_models = st.checkbox("Compare All Three Providers", value=False)
+        # Compare Models Option (across Google, Groq, OpenRouter)
+        compare_models = st.checkbox("Compare All Providers", value=False)
         if compare_models and st.session_state.llm_manager:
             available_models = st.session_state.llm_manager.list_available_models()
-            # Group models by provider for comparison
+            # Group models by provider for comparison (excluding OpenAI and Anthropic)
             comp_google_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "google"]
             comp_groq_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "groq"]
             comp_openrouter_models = [m for m in available_models if LLM_MODELS.get(m, {}).get("provider") == "openrouter"]
-            # Get one model from each provider
+            # Get one model from each available provider
             comparison_models = []
             if comp_google_models:
                 comparison_models.append(comp_google_models[0])
