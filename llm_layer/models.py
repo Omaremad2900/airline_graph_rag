@@ -1,8 +1,10 @@
 """LLM model wrappers for different providers."""
 import time
+import logging
 from typing import Optional
 import config
 from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
 try:
     from langchain_anthropic import ChatAnthropic
 except ImportError:
@@ -16,6 +18,9 @@ try:
     from langchain_groq import ChatGroq
 except ImportError:
     ChatGroq = None
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class LLMModel:
@@ -119,19 +124,35 @@ class LLMModel:
         else:
             raise ValueError(f"Unknown provider: {self.provider}")
     
-    def invoke(self, prompt: str) -> str:
+    def invoke(self, prompt: str, debug: bool = False) -> str:
         """
         Invoke the LLM with a prompt.
         
         Args:
-            prompt: Input prompt
+            prompt: Input prompt (string)
+            debug: If True, log the prompt and response details
             
         Returns:
             LLM response text
         """
         start_time = time.time()
+        
+        # Log prompt for debugging (first 200 chars to avoid spam)
+        if debug:
+            logger.info(f"[{self.model_name}] Prompt length: {len(prompt)} chars")
+            logger.info(f"[{self.model_name}] Prompt preview: {prompt[:200]}...")
+        
         try:
-            response = self.llm.invoke(prompt)
+            # Format prompt properly for chat models
+            # Chat models (OpenAI, Anthropic, Google, OpenRouter, Groq) work better with HumanMessage
+            # This ensures consistent behavior across single and compare modes
+            if self.provider in ["openai", "anthropic", "google", "openrouter", "groq"]:
+                # Use HumanMessage for chat models to ensure consistent formatting
+                messages = [HumanMessage(content=prompt)]
+                response = self.llm.invoke(messages)
+            else:
+                # For non-chat models (like HuggingFaceHub), use string directly
+                response = self.llm.invoke(prompt)
             
             # Extract text from response
             if hasattr(response, 'content'):
@@ -144,13 +165,28 @@ class LLMModel:
             self.response_time = time.time() - start_time
             
             # Estimate token count (rough approximation)
-            self.token_count = len(prompt.split()) + len(text.split())
+            prompt_str = prompt if isinstance(prompt, str) else str(prompt)
+            self.token_count = len(prompt_str.split()) + len(text.split())
+            
+            if debug:
+                logger.info(f"[{self.model_name}] Response length: {len(text)} chars")
+                logger.info(f"[{self.model_name}] Response time: {self.response_time:.2f}s")
             
             return text
         
         except Exception as e:
-            print(f"Error invoking {self.model_name}: {e}")
-            return f"Error: {str(e)}"
+            error_msg = f"Error invoking {self.model_name}: {e}"
+            logger.error(error_msg, exc_info=True)
+            print(error_msg)
+            
+            # Provide more user-friendly error messages
+            error_str = str(e)
+            if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str or "quota" in error_str.lower():
+                return f"❌ API Quota Exceeded: The {self.model_name} model has exceeded its rate limit or quota. Please try again later or use a different model."
+            elif "context" in error_str.lower() or "token" in error_str.lower():
+                return f"❌ Context/Token Error: {error_str}"
+            else:
+                return f"❌ Error: {error_str}"
     
     def get_metrics(self) -> dict:
         """Get performance metrics for the last invocation."""
@@ -188,13 +224,14 @@ class LLMManager:
         """List all available models."""
         return self.available_models
     
-    def compare_models(self, prompt: str, model_names: list = None) -> dict:
+    def compare_models(self, prompt: str, model_names: list = None, debug: bool = False) -> dict:
         """
         Compare multiple models on the same prompt.
         
         Args:
-            prompt: Input prompt
+            prompt: Input prompt (must be identical to single model calls)
             model_names: List of model names to compare (default: all available)
+            debug: If True, enable debug logging
             
         Returns:
             Dictionary of model responses and metrics
@@ -202,16 +239,25 @@ class LLMManager:
         if model_names is None:
             model_names = self.available_models
         
+        if debug:
+            logger.info(f"Comparing {len(model_names)} models with prompt length: {len(prompt)}")
+            logger.info(f"Prompt preview: {prompt[:200]}...")
+        
         results = {}
         for model_name in model_names:
             if model_name in self.models:
                 model = self.models[model_name]
-                response = model.invoke(prompt)
+                # Use the same invoke method with same prompt - ensures consistency
+                response = model.invoke(prompt, debug=debug)
                 metrics = model.get_metrics()
                 results[model_name] = {
                     "response": response,
                     "metrics": metrics
                 }
+                if debug:
+                    logger.info(f"[{model_name}] Completed - Response: {response[:100]}...")
+            else:
+                logger.warning(f"Model {model_name} not found in available models")
         
         return results
 

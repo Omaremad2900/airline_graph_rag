@@ -373,6 +373,11 @@ def main():
             # Use compact JSON to save tokens
             context = json.dumps(truncated_results, separators=(',', ':'))  # No extra spaces
             
+            # Validate context before proceeding
+            context_is_empty = not truncated_results or len(truncated_results) == 0
+            if context_is_empty:
+                st.warning("⚠️ No context retrieved from knowledge graph. The LLM may not have enough information to answer your question.")
+            
             # Step 3: LLM Generation
             if selected_model or compare_models:
                 persona = get_persona()
